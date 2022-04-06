@@ -1,8 +1,6 @@
 use std::io::Write;
 use std::thread;
 
-use log::{error};
-
 use chrono::prelude::*;
 use env_logger::fmt::Formatter;
 use env_logger::Builder;
@@ -37,15 +35,4 @@ pub fn setup_logger(log_thread: bool, rust_log: Option<&str>) {
     rust_log.map(|conf| builder.parse_filters(conf));
 
     builder.init();
-}
-
-
-pub fn log_error_and_return_none<T>(error: &str) -> Option<T> {
-    error!("{}", error);
-    None
-}
-
-#[allow(dead_code)]
-fn main() {
-    println!("This is not an executable");
 }

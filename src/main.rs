@@ -1,255 +1,24 @@
-use std::format;
 use std::str;
 use std::time::Duration;
 
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 
 use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 
-use log::{info, error};
+use log::info;
 
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::Consumer;
-use rdkafka::message::{BorrowedMessage, OwnedMessage};
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::Message;
+use schema_registry_converter::async_impl::schema_registry::SrSettings;
 
-use avro_rs::{from_value};
-use schema_registry_converter::schema_registry_common::SubjectNameStrategy;
-use schema_registry_converter::blocking::avro::{AvroEncoder, AvroDecoder};
-use schema_registry_converter::blocking::schema_registry::SrSettings;
+use crate::schemas::setup_schemas;
+use crate::utils::setup_logger;
 
-use chrono::{TimeZone, Utc};
-
-use oxigraph::model::*;
-
-use crate::utils::{setup_logger, log_error_and_return_none};
-use crate::url::{check_url, UrlType};
-use crate::schemas::{setup_schemas, DatasetEvent, MQAEvent, MQAEventType};
-use crate::rdf::{
-    parse_turtle, 
-    list_distributions,
-    get_dataset_node, 
-    extract_urls_from_distribution, 
-    create_metrics_store, 
-    add_access_url_status_metric,
-    add_download_url_status_metric,
-    dump_graph_as_turtle};
-
-mod utils;
-mod url;
-mod schemas;
+mod kafka;
 mod rdf;
-
-async fn record_borrowed_message_receipt(msg: &BorrowedMessage<'_>) {
-    // Simulate some work that must be done in the same order as messages are
-    // received; i.e., before truly parallel processing can begin.
-    info!("Message received: {}", msg.offset());
-}
-
-async fn record_owned_message_receipt(_msg: &OwnedMessage) {
-    // Like `record_borrowed_message_receipt`, but takes an `OwnedMessage`
-    // instead, as in a real-world use case  an `OwnedMessage` might be more
-    // convenient than a `BorrowedMessage`.
-}
-
-// Read DatasetEvent message of type DATASET_HARVESTED
-fn handle_dataset_event<'a>(msg: OwnedMessage, mut decoder: AvroDecoder) -> Option<MQAEvent> {
-    info!("Handle DatasetEvent on message {}", msg.offset());
-
-    let dataset_event: Option<DatasetEvent> = match decoder.decode(msg.payload()) {
-    Ok(result) => {            
-        match result.name {
-        Some(name) => {
-            match &name.name[..] {
-            "DatasetEvent" => {
-                match name.namespace {
-                Some(namespace) => {
-                    match namespace.as_str() {
-                        "no.fdk.dataset" => match from_value::<DatasetEvent>(&result.value) {
-                            Ok(event) => Some(event),
-                            Err(e) => log_error_and_return_none(format!("Deserialization failed {}", e).as_str())
-                        } ,
-                        ns => log_error_and_return_none(format!("Unexpected namespace {}", ns).as_str())
-                    }
-                }
-                None => log_error_and_return_none("No namespace in schema, while expected"), 
-                } 
-            }
-            name => log_error_and_return_none(format!("Unexpected name {}", name).as_str()),
-            } 
-        }
-        None => log_error_and_return_none("No name in schema, while expected"),
-        }
-    }
-    Err(e) => log_error_and_return_none(format!("error getting dataset-event: {}", e).as_str()),
-    };
-
-    match dataset_event {
-        Some(event) => {
-            let dt = Utc.timestamp_millis(event.timestamp);
-            info!("{} - Processing dataset event with timestamp {:?}", event.fdkId, dt);
-            
-            let store = parse_turtle(event.graph);
-
-            match get_dataset_node(&store) {
-                Some(dataset_node) => {
-
-                    match list_distributions(&dataset_node, &store).collect::<Result<Vec<Quad>,_>>() {
-                        Ok(distributions) => {
-                            // Make MQA metrics model (DQV)
-                            let metrics_store = create_metrics_store(&dataset_node, &distributions);
-
-                            for dist in distributions {       
-                                let dist_node = match dist.object {
-                                    Term::NamedNode(n) => Some(NamedOrBlankNode::NamedNode(n)),
-                                    Term::BlankNode(n) => Some(NamedOrBlankNode::BlankNode(n)),
-                                    _ => None
-                                }.unwrap();     
-                                
-                                info!("{} - Extracting urls from distribution", event.fdkId);
-                                let urls = extract_urls_from_distribution(&dist_node, &store);
-                                info!("{} - Number of urls found {}", event.fdkId, urls.len());
-
-                                for url in urls {
-                                    let result = check_url(
-                                        url.get("method").unwrap().to_string(), 
-                                        if url.contains_key("access_url") {
-                                            url.get("access_url").unwrap().to_string()
-                                        } else {
-                                            url.get("download_url").unwrap().to_string()
-                                        },
-                                        if url.contains_key("access_url") {
-                                            UrlType::ACCESS_URL
-                                        } else {
-                                            UrlType::DOWNLOAD_URL
-                                        });
-
-                                    
-                                    println!("{:?}", result);
-                                    
-                                    match result.url_type {
-                                        UrlType::ACCESS_URL => add_access_url_status_metric(&dist_node, result.url, result.status, &metrics_store),
-                                        UrlType::DOWNLOAD_URL => add_download_url_status_metric(&dist_node, result.url, result.status, &metrics_store)
-                                    }
-                                }
-                            }
-
-                            // Create MQA event and send to kafka topic
-                            return Some(
-                                MQAEvent {
-                                    r#type: MQAEventType::URLS_CHECKED,
-                                    fdkId: event.fdkId,
-                                    graph: str::from_utf8(dump_graph_as_turtle(&metrics_store).unwrap().as_slice()).unwrap().to_string(),
-                                    timestamp: Utc::now().timestamp_millis()
-                                }
-                            );   
-                        },
-                        Err(e) => error!("Listing distributions failed {}", e)
-                    }
-
-                    
-                    
-                },
-                None => error!("{} - Dataset node not found in graph", event.fdkId)
-            }
-            
-        },
-        None => error!("Unable to decode dataset event")
-    }     
-
-    None
-}
-
-// Creates all the resources and runs the event loop. The event loop will:
-//   1) receive a stream of messages from the `StreamConsumer`.
-//   2) filter out eventual Kafka errors.
-//   3) send the message to a thread pool for processing.
-//   4) produce the result to the output topic.
-// `tokio::spawn` is used to handle IO-bound tasks in parallel (e.g., producing
-// the messages), while `tokio::task::spawn_blocking` is used to handle the
-// simulated CPU-bound task.
-async fn run_async_processor(
-    brokers: String,
-    group_id: String,
-    input_topic: String,
-    output_topic: String,
-    sr_settings: SrSettings,
-) {
-    // Create the `StreamConsumer`, to receive the messages from the topic in form of a `Stream`.
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("group.id", &group_id)
-        .set("bootstrap.servers", &brokers)
-        .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
-        .set("enable.auto.commit", "true")
-        .set("auto.offset.reset", "beginning")
-        .set("api.version.request", "false")
-        .set("security.protocol", "plaintext")
-        .set("debug", "all")
-        .set_log_level(RDKafkaLogLevel::Debug)
-        .create()
-        .expect("Consumer creation failed");
-
-    consumer
-        .subscribe(&[&input_topic])
-        .expect("Can't subscribe to specified topic");
-
-        
-    // Create the `FutureProducer` to produce asynchronously.
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &brokers)
-        .set("message.timeout.ms", "5000")
-        .create()
-        .expect("Producer creation error");
-
-    // Create the outer pipeline on the message stream.
-    let stream_processor = consumer.stream().try_for_each(|borrowed_message| {
-        let decoder = AvroDecoder::new(sr_settings.clone());
-        let mut encoder = AvroEncoder::new(sr_settings.clone());
-        let producer = producer.clone();
-        let output_topic = output_topic.to_string();
-        async move {
-            // Process each message
-            record_borrowed_message_receipt(&borrowed_message).await;
-            // Borrowed messages can't outlive the consumer they are received from, so they need to
-            // be owned in order to be sent to a separate thread.
-            let owned_message = borrowed_message.detach();
-            record_owned_message_receipt(&owned_message).await;
-            tokio::spawn(async move {
-                // The body of this block will be executed on the main thread pool,
-                // but we perform `expensive_computation` on a separate thread pool
-                // for CPU-intensive tasks via `tokio::task::spawn_blocking`.
-                let mqa_event = tokio::task::spawn_blocking(|| handle_dataset_event(owned_message, decoder))
-                        .await
-                        .expect("failed to wait for handle dataset-event");
-                
-                match mqa_event {
-                    Some(evt) => {
-                        let fdk_id = evt.fdkId.clone();
-                        let schema_strategy = SubjectNameStrategy::RecordNameStrategy(String::from("no.fdk.mqa.MQAEvent"));
-                        let encoded_payload = encoder.encode_struct(evt, &schema_strategy).unwrap();
-                        let record: FutureRecord<String, Vec<u8>> = FutureRecord::to(&output_topic).payload(&encoded_payload);
-                        let produce_future = producer.send(record, Duration::from_secs(0));                        
-                        match produce_future.await {
-                            Ok(delivery) => info!("{} - Produce mqa event succeeded {:?}", fdk_id.clone(), delivery),
-                            Err((e, _)) => error!("{} - Produce mqa event failed {:?}", fdk_id.clone(), e),
-                        }        
-                    },
-                    None => ()
-                }
-                
-            });
-            Ok(())
-        }
-    });
-
-    info!("Starting event loop");
-    stream_processor.await.expect("stream processing failed");
-    info!("Stream processing terminated");
-}
+mod schemas;
+mod url;
+mod utils;
+mod vocab;
 
 #[tokio::main]
 async fn main() {
@@ -309,7 +78,7 @@ async fn main() {
         .get_matches();
 
     setup_logger(true, matches.value_of("log-conf"));
-    
+
     let brokers = matches.value_of("brokers").unwrap();
     let group_id = matches.value_of("group-id").unwrap();
     let input_topic = matches.value_of("input-topic").unwrap();
@@ -317,13 +86,31 @@ async fn main() {
     let num_workers = matches.value_of_t("num-workers").unwrap();
     let schema_registry = matches.value_of("schema-registry").unwrap();
 
-    let sr_settings = SrSettings::new(String::from(schema_registry));
+    info!("Using following settings:");
+    info!("  brokers:         {}", brokers);
+    info!("  group_id:        {}", group_id);
+    info!("  input_topic:     {}", input_topic);
+    info!("  output_topic:    {}", output_topic);
+    info!("  num_workers:     {}", num_workers);
+    info!("  schema_registry: {}", schema_registry);
 
-    setup_schemas(&sr_settings);
+    let schema_registry_urls = schema_registry.split(",").collect::<Vec<&str>>();
+    let mut sr_settings_builder =
+        SrSettings::new_builder(schema_registry_urls.first().unwrap().to_string());
+    for url in schema_registry_urls.iter().enumerate().skip(1) {
+        sr_settings_builder.add_url(url.1.to_string());
+    }
+
+    let sr_settings = sr_settings_builder
+        .set_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+
+    setup_schemas(&sr_settings).await;
 
     (0..num_workers)
         .map(|_| {
-            tokio::spawn(run_async_processor(
+            tokio::spawn(kafka::run_async_processor(
                 brokers.to_owned(),
                 group_id.to_owned(),
                 input_topic.to_owned(),
