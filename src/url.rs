@@ -2,7 +2,7 @@ use chrono::Utc;
 use log::{info, warn};
 
 use oxigraph::{
-    model::{GraphName, NamedNodeRef, NamedOrBlankNode, Quad, Term},
+    model::{vocab::rdf, GraphName, NamedNodeRef, NamedOrBlankNode, Quad, Term},
     store::Store,
 };
 use url::Url;
@@ -18,6 +18,7 @@ use crate::{
         extract_urls_from_distribution, get_dataset_node, list_distributions, parse_turtle,
     },
     schemas::{MQAEvent, MQAEventType},
+    vocab::dcat,
 };
 
 use crate::error::Error;
@@ -82,6 +83,16 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
 
         match dist_node_option {
             Some(dist_node) => {
+                metrics_store.insert(
+                    Quad::new(
+                        dist_node.clone(),
+                        rdf::TYPE,
+                        dcat::DISTRIBUTION_CLASS,
+                        GraphName::DefaultGraph,
+                    )
+                    .as_ref(),
+                )?;
+
                 info!("{} - Extracting urls from distribution", fdk_id);
                 let urls = extract_urls_from_distribution(dist_node.as_ref(), &store)?;
                 info!("{} - Number of urls found {}", fdk_id, urls.len());
@@ -281,7 +292,7 @@ mod tests {
         assert!(store_actual_result.is_ok());
         let store_actual = store_actual_result.unwrap();
         assert_eq!(
-            8,
+            9,
             store_actual
                 .quads_for_pattern(None, None, None, None)
                 .count()
@@ -296,6 +307,18 @@ mod tests {
             if let Ok(dist_quad) = dr {
                 let dist = convert_term_to_named_or_blank_node_ref(dist_quad.object.as_ref());
                 assert!(dist.is_some());
+
+                assert_eq!(
+                    1,
+                    store_actual
+                        .quads_for_pattern(
+                            dist.map(|d| d.into()),
+                            Some(rdf::TYPE),
+                            Some(dcat::DISTRIBUTION_CLASS.into()),
+                            None,
+                        )
+                        .count()
+                );
 
                 let mr = store_actual
                     .quads_for_pattern(
