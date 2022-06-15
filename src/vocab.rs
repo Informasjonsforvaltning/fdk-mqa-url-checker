@@ -11,6 +11,9 @@ pub mod dcat {
     pub const DATASET_CLASS: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#Dataset");
 
+    pub const DISTRIBUTION_CLASS: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#Distribution");
+
     pub const DISTRIBUTION: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#distribution");
 
