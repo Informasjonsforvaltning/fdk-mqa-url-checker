@@ -33,7 +33,7 @@ lazy_static! {
     pub static ref SCHEMA_REGISTRY: String =
         env::var("SCHEMA_REGISTRY").unwrap_or("http://localhost:8081".to_string());
     pub static ref INPUT_TOPIC: String =
-        env::var("INPUT_TOPIC").unwrap_or("mqa-dataset-events".to_string());
+        env::var("INPUT_TOPIC").unwrap_or("dataset-events".to_string());
     pub static ref OUTPUT_TOPIC: String =
         env::var("OUTPUT_TOPIC").unwrap_or("mqa-events".to_string());
 }
@@ -136,7 +136,7 @@ async fn parse_dataset_event(
             Some(name) => match name.name.as_str() {
                 "DatasetEvent" => match name.namespace {
                     Some(namespace) => match namespace.as_str() {
-                        "no.fdk.mqa" => match from_value::<DatasetEvent>(&result.value) {
+                        "no.fdk.dataset" => match from_value::<DatasetEvent>(&result.value) {
                             Ok(event) => Ok(event),
                             Err(e) => Err(format!("Deserialization failed {}", e)),
                         },
