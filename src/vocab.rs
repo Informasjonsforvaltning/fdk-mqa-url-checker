@@ -30,8 +30,8 @@ pub mod dqv {
     pub const QUALITY_MEASUREMENT_CLASS: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#QualityMeasurement");
 
-    pub const HAS_QUALITY_MEASUREMENT: NamedNodeRef<'_> =
-        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#hasQualityMeasurement");
+    pub const CONTAINS_QUALITY_MEASUREMENT: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#containsQualityMeasurement");
 
     pub const IS_MEASUREMENT_OF: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#isMeasurementOf");

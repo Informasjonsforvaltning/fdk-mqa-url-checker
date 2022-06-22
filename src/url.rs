@@ -327,7 +327,7 @@ mod tests {
                     <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#hasDistributionAssessment> <https://mqa.dist.foo> .
                     <https://mqa.dist.foo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DistributionAssessment> .
                     <https://mqa.dist.foo> <http://www.w3.org/ns/dcat#assessmentOf> <https://dist.foo> .
-                    <https://mqa.dist.foo> <http://www.w3.org/ns/dqv#hasQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
+                    <https://mqa.dist.foo> <http://www.w3.org/ns/dqv#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dqv#QualityMeasurement> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#computedOn> <https://dist.foo> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#isMeasurementOf> <https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode> .

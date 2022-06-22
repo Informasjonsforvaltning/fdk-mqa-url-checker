@@ -179,7 +179,7 @@ pub fn add_quality_measurement(
     ))?;
     store.insert(&Quad::new(
         target,
-        dqv::HAS_QUALITY_MEASUREMENT,
+        dqv::CONTAINS_QUALITY_MEASUREMENT,
         measurement.as_ref(),
         GraphName::DefaultGraph,
     ))?;
