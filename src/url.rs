@@ -1,18 +1,15 @@
+use cached::{proc_macro::cached, Return};
 use chrono::Utc;
 use log::{info, warn};
-
 use oxigraph::{
     model::{vocab::rdf, GraphName, NamedNode, NamedNodeRef, Quad, Term},
     store::Store,
 };
+use reqwest::blocking::Client;
 use url::Url;
 
-use reqwest::blocking::Client;
-
-use cached::proc_macro::cached;
-use cached::Return;
-
 use crate::{
+    error::Error,
     rdf::{
         add_quality_measurement, dump_graph_as_turtle, extract_urls_from_distribution,
         get_dataset_node, list_distributions, parse_turtle,
@@ -20,8 +17,6 @@ use crate::{
     schemas::{MQAEvent, MQAEventType},
     vocab::dcat_mqa,
 };
-
-use crate::error::Error;
 
 #[derive(Debug, Clone)]
 pub enum UrlType {
@@ -82,6 +77,7 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
             warn!("Distribution is not a named node {}", fdk_id);
             continue;
         };
+
         let distribution_assessment =
             NamedNode::new(distribution.as_str().to_string().replace("://", "://mqa."))?;
 

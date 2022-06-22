@@ -1,14 +1,18 @@
 use log::{info, warn};
+use oxigraph::{
+    io::GraphFormat,
+    model::{
+        vocab::{rdf, xsd},
+        BlankNode, GraphName, GraphNameRef, Literal, NamedNode, NamedNodeRef, Quad, Subject, Term,
+    },
+    store::{QuadIter, SerializerError, Store},
+};
 
-use oxigraph::io::GraphFormat;
-use oxigraph::model::vocab::{rdf, xsd};
-use oxigraph::model::*;
-use oxigraph::store::{QuadIter, SerializerError, Store};
-
-use crate::url::{UrlCheck, UrlType};
-use crate::vocab::{dcat, dcterms, dqv};
-
-use crate::error::Error;
+use crate::{
+    error::Error,
+    url::{UrlCheck, UrlType},
+    vocab::{dcat, dcterms, dqv},
+};
 
 /// Parse Turtle RDF and load into store
 pub fn parse_turtle(turtle: String) -> Result<Store, Error> {
