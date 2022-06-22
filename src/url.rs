@@ -79,7 +79,7 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
         let distribution = if let Term::NamedNode(node) = dist.object.clone() {
             node
         } else {
-            warn!("Distribution is not a named or blank node {}", fdk_id);
+            warn!("Distribution is not a named node {}", fdk_id);
             continue;
         };
         let distribution_assessment =
