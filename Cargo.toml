@@ -25,3 +25,5 @@ serde_derive = "1.0.136"
 tokio = { version = "1.17.0", features = ["full"] }
 url = "2.2.2"
 thiserror = "1.0.31"
+uuid = "1.1.2"
+sha2 = "0.10.2"

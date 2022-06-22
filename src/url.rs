@@ -1,12 +1,23 @@
+use std::env;
+
 use cached::{proc_macro::cached, Return};
 use chrono::Utc;
+use lazy_static::lazy_static;
 use log::{info, warn};
 use oxigraph::{
     model::{vocab::rdf, GraphName, NamedNode, NamedNodeRef, Quad, Term},
     store::Store,
 };
 use reqwest::blocking::Client;
+use sha2::{
+    digest::{
+        consts::U16,
+        generic_array::{sequence::Split, GenericArray},
+    },
+    Digest, Sha256,
+};
 use url::Url;
+use uuid::Uuid;
 
 use crate::{
     error::Error,
@@ -17,6 +28,11 @@ use crate::{
     schemas::{MQAEvent, MQAEventType},
     vocab::dcat_mqa,
 };
+
+lazy_static! {
+    pub static ref MQA_URI_BASE: String =
+        env::var("MQA_URI_BASE").unwrap_or("http://localhost:8080".to_string());
+}
 
 #[derive(Debug, Clone)]
 pub enum UrlType {
@@ -53,9 +69,21 @@ pub fn parse_rdf_graph_and_check_urls(fdk_id: String, graph: String) -> Result<M
     })
 }
 
+fn uuid_from_str(s: String) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(s);
+    let hash = hasher.finalize();
+    let (head, _): (GenericArray<_, U16>, _) = Split::split(hash);
+    uuid::Uuid::from_u128(u128::from_le_bytes(*head.as_ref()))
+}
+
 fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Result<Store, Error> {
-    let dataset_assessment =
-        NamedNode::new(dataset_node.as_str().to_string().replace("://", "://mqa."))?;
+    let dataset_assessment = NamedNode::new(format!(
+        "{}/assessments/datasets/{}",
+        MQA_URI_BASE.clone(),
+        fdk_id.clone()
+    ))?;
+
     let metrics_store = Store::new()?;
     metrics_store.insert(&Quad::new(
         dataset_assessment.clone(),
@@ -78,8 +106,11 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
             continue;
         };
 
-        let distribution_assessment =
-            NamedNode::new(distribution.as_str().to_string().replace("://", "://mqa."))?;
+        let distribution_assessment = NamedNode::new(format!(
+            "{}/assessments/distributions/{}",
+            MQA_URI_BASE.clone(),
+            uuid_from_str(distribution.as_str().to_string())
+        ))?;
 
         metrics_store.insert(&Quad::new(
             dataset_assessment.as_ref(),
@@ -258,7 +289,7 @@ mod tests {
     fn test_parse_graph_anc_collect_metrics() {
         setup_logger(true, None);
 
-        let mqa_event = parse_rdf_graph_and_check_urls("1".to_string(), r#"
+        let mqa_event = parse_rdf_graph_and_check_urls("0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
             @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
@@ -318,12 +349,12 @@ mod tests {
             sorted_lines(replace_blank(graph_actual)),
             sorted_lines(replace_blank(
                 r#"
-                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DatasetAssessment> .
-                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
-                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#hasDistributionAssessment> <https://mqa.dist.foo> .
-                    <https://mqa.dist.foo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DistributionAssessment> .
-                    <https://mqa.dist.foo> <http://www.w3.org/ns/dcat#assessmentOf> <https://dist.foo> .
-                    <https://mqa.dist.foo> <http://www.w3.org/ns/dqv#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DatasetAssessment> .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#hasDistributionAssessment> <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DistributionAssessment> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/ns/dcat#assessmentOf> <https://dist.foo> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/ns/dqv#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dqv#QualityMeasurement> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#computedOn> <https://dist.foo> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#isMeasurementOf> <https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode> .
