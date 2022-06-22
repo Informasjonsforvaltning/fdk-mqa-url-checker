@@ -46,6 +46,18 @@ pub mod dqv {
 pub mod dcat_mqa {
     use oxigraph::model::NamedNodeRef;
 
+    pub const ASSESSMENT_OF: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#assessmentOf");
+
+    pub const DATASET_ASSESSMENT_CLASS: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#DatasetAssessment");
+
+    pub const DISTRIBUTION_ASSESSMENT_CLASS: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#DistributionAssessment");
+
+    pub const HAS_DISTRIBUTION_ASSESSMENT: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dcat#hasDistributionAssessment");
+
     pub const ACCESS_URL_STATUS_CODE: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
         "https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode",
     );

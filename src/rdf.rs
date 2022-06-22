@@ -6,7 +6,7 @@ use oxigraph::model::*;
 use oxigraph::store::{QuadIter, SerializerError, Store};
 
 use crate::url::{UrlCheck, UrlType};
-use crate::vocab::{dcat, dcat_mqa, dcterms, dqv};
+use crate::vocab::{dcat, dcterms, dqv};
 
 use crate::error::Error;
 
@@ -45,7 +45,7 @@ pub fn list_distributions(dataset: NamedNodeRef, store: &Store) -> QuadIter {
 }
 
 /// Retrieve access urls of a distribution
-pub fn list_access_urls(distribution: NamedOrBlankNodeRef, store: &Store) -> QuadIter {
+pub fn list_access_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcat::ACCESS_URL.into()),
@@ -55,7 +55,7 @@ pub fn list_access_urls(distribution: NamedOrBlankNodeRef, store: &Store) -> Qua
 }
 
 /// Retrieve download urls of a distribution
-pub fn list_download_urls(distribution: NamedOrBlankNodeRef, store: &Store) -> QuadIter {
+pub fn list_download_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcat::DOWNLOAD_URL.into()),
@@ -65,7 +65,7 @@ pub fn list_download_urls(distribution: NamedOrBlankNodeRef, store: &Store) -> Q
 }
 
 /// Retrieve distribution formats
-pub fn list_formats(distribution: NamedOrBlankNodeRef, store: &Store) -> QuadIter {
+pub fn list_formats(distribution: NamedNodeRef, store: &Store) -> QuadIter {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcterms::FORMAT.into()),
@@ -99,19 +99,18 @@ fn map_format_to_head(format_uri: String) -> String {
 
 /// Extract accessURLs and downloadURLs from dataset
 pub fn extract_urls_from_distribution(
-    dist_node: NamedOrBlankNodeRef,
+    distribution: NamedNodeRef,
     store: &Store,
 ) -> Result<Vec<UrlCheck>, Error> {
     let mut urls = Vec::new();
 
     // Map format to HEAD
-    let head = list_formats(dist_node, store)
-        .next()
-        .map_or("HEAD".to_string(), |fmt_res| {
-            map_format_to_head(fmt_res.map_or("".to_string(), |fmt| fmt.object.to_string()))
-        });
+    let head = match list_formats(distribution, store).next() {
+        Some(fmt) => map_format_to_head(fmt?.object.to_string()),
+        None => "HEAD".to_string(),
+    };
 
-    for acc_url_result in list_access_urls(dist_node, store) {
+    for acc_url_result in list_access_urls(distribution, store) {
         match acc_url_result?.object {
             Term::NamedNode(acc_url_node) => {
                 urls.push(UrlCheck {
@@ -124,7 +123,7 @@ pub fn extract_urls_from_distribution(
         }
     }
 
-    for dl_url_result in list_download_urls(dist_node, store) {
+    for dl_url_result in list_download_urls(distribution, store) {
         match dl_url_result?.object {
             Term::NamedNode(dl_url_node) => {
                 urls.push(UrlCheck {
@@ -140,44 +139,11 @@ pub fn extract_urls_from_distribution(
     Ok(urls)
 }
 
-/// Create new memory metrics store for supplied dataset
-pub fn create_metrics_store(dataset: NamedNodeRef) -> Result<Store, Error> {
-    let store = Store::new()?;
-
-    // Insert dataset
-    store.insert(
-        Quad::new(
-            dataset.clone(),
-            rdf::TYPE,
-            dcat::DATASET_CLASS,
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
-    Ok(store)
-}
-
-/// Add MQA url status code metric
-pub fn add_url_status_metric(
-    distribution: NamedOrBlankNodeRef,
-    url: NamedNodeRef,
-    url_type: UrlType,
-    status_code: u16,
-    store: &Store,
-) -> Result<BlankNode, Error> {
-    let (predicate, metric) = match url_type {
-        UrlType::AccessUrl => (dcat::ACCESS_URL, dcat_mqa::ACCESS_URL_STATUS_CODE),
-        UrlType::DownloadUrl => (dcat::DOWNLOAD_URL, dcat_mqa::DOWNLOAD_URL_STATUS_CODE),
-    };
-    store.insert(Quad::new(distribution, predicate, url, GraphName::DefaultGraph).as_ref())?;
-    add_quality_measurement(metric, distribution, url.into(), status_code, store)
-}
-
 /// Add quality measurement to metric store
 pub fn add_quality_measurement(
     metric: NamedNodeRef,
-    target: NamedOrBlankNodeRef,
-    computed_on: NamedOrBlankNodeRef,
+    target: NamedNodeRef,
+    computed_on: NamedNodeRef,
     value: u16,
     store: &Store,
 ) -> Result<BlankNode, Error> {
@@ -187,51 +153,36 @@ pub fn add_quality_measurement(
         xsd::INTEGER,
     ));
 
-    store.insert(
-        Quad::new(
-            measurement.as_ref(),
-            rdf::TYPE,
-            dqv::QUALITY_MEASUREMENT_CLASS,
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
-    store.insert(
-        Quad::new(
-            measurement.as_ref(),
-            dqv::IS_MEASUREMENT_OF,
-            metric,
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
-    store.insert(
-        Quad::new(
-            measurement.as_ref(),
-            dqv::COMPUTED_ON,
-            computed_on,
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
-    store.insert(
-        Quad::new(
-            measurement.as_ref(),
-            dqv::VALUE,
-            value_term,
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
-    store.insert(
-        Quad::new(
-            target,
-            dqv::HAS_QUALITY_MEASUREMENT,
-            measurement.as_ref(),
-            GraphName::DefaultGraph,
-        )
-        .as_ref(),
-    )?;
+    store.insert(&Quad::new(
+        measurement.as_ref(),
+        rdf::TYPE,
+        dqv::QUALITY_MEASUREMENT_CLASS,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        measurement.as_ref(),
+        dqv::IS_MEASUREMENT_OF,
+        metric,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        measurement.as_ref(),
+        dqv::COMPUTED_ON,
+        computed_on,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        measurement.as_ref(),
+        dqv::VALUE,
+        value_term,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        target,
+        dqv::HAS_QUALITY_MEASUREMENT,
+        measurement.as_ref(),
+        GraphName::DefaultGraph,
+    ))?;
 
     Ok(measurement)
 }

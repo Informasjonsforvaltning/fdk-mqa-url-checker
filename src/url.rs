@@ -2,7 +2,7 @@ use chrono::Utc;
 use log::{info, warn};
 
 use oxigraph::{
-    model::{vocab::rdf, GraphName, NamedNodeRef, NamedOrBlankNode, Quad, Term},
+    model::{vocab::rdf, GraphName, NamedNode, NamedNodeRef, Quad, Term},
     store::Store,
 };
 use url::Url;
@@ -14,11 +14,11 @@ use cached::Return;
 
 use crate::{
     rdf::{
-        add_url_status_metric, create_metrics_store, dump_graph_as_turtle,
-        extract_urls_from_distribution, get_dataset_node, list_distributions, parse_turtle,
+        add_quality_measurement, dump_graph_as_turtle, extract_urls_from_distribution,
+        get_dataset_node, list_distributions, parse_turtle,
     },
     schemas::{MQAEvent, MQAEventType},
-    vocab::dcat,
+    vocab::dcat_mqa,
 };
 
 use crate::error::Error;
@@ -59,75 +59,88 @@ pub fn parse_rdf_graph_and_check_urls(fdk_id: String, graph: String) -> Result<M
 }
 
 fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Result<Store, Error> {
-    // Make MQA metrics model (DQV)
-    let metrics_store = create_metrics_store(dataset_node)?;
-    let distributions =
-        list_distributions(dataset_node, store).collect::<Result<Vec<Quad>, _>>()?;
+    let dataset_assessment =
+        NamedNode::new(dataset_node.as_str().to_string().replace("://", "://mqa."))?;
+    let metrics_store = Store::new()?;
+    metrics_store.insert(&Quad::new(
+        dataset_assessment.clone(),
+        rdf::TYPE,
+        dcat_mqa::DATASET_ASSESSMENT_CLASS,
+        GraphName::DefaultGraph,
+    ))?;
+    metrics_store.insert(&Quad::new(
+        dataset_assessment.clone(),
+        dcat_mqa::ASSESSMENT_OF,
+        dataset_node,
+        GraphName::DefaultGraph,
+    ))?;
 
-    for dist in distributions {
-        metrics_store.insert(
-            Quad::new(
-                dist.subject.clone(),
-                dist.predicate.clone(),
-                dist.object.clone(),
-                GraphName::DefaultGraph,
-            )
-            .as_ref(),
-        )?;
-
-        let dist_node_option = match dist.object {
-            Term::NamedNode(n) => Some(NamedOrBlankNode::NamedNode(n)),
-            Term::BlankNode(n) => Some(NamedOrBlankNode::BlankNode(n)),
-            _ => None,
+    for dist in list_distributions(dataset_node, store).collect::<Result<Vec<Quad>, _>>()? {
+        let distribution = if let Term::NamedNode(node) = dist.object.clone() {
+            node
+        } else {
+            warn!("Distribution is not a named or blank node {}", fdk_id);
+            continue;
         };
+        let distribution_assessment =
+            NamedNode::new(distribution.as_str().to_string().replace("://", "://mqa."))?;
 
-        match dist_node_option {
-            Some(dist_node) => {
-                metrics_store.insert(
-                    Quad::new(
-                        dist_node.clone(),
-                        rdf::TYPE,
-                        dcat::DISTRIBUTION_CLASS,
-                        GraphName::DefaultGraph,
-                    )
-                    .as_ref(),
-                )?;
+        metrics_store.insert(&Quad::new(
+            dataset_assessment.as_ref(),
+            dcat_mqa::HAS_DISTRIBUTION_ASSESSMENT,
+            distribution_assessment.as_ref(),
+            GraphName::DefaultGraph,
+        ))?;
+        metrics_store.insert(&Quad::new(
+            distribution_assessment.as_ref(),
+            rdf::TYPE,
+            dcat_mqa::DISTRIBUTION_ASSESSMENT_CLASS,
+            GraphName::DefaultGraph,
+        ))?;
+        metrics_store.insert(&Quad::new(
+            distribution_assessment.clone(),
+            dcat_mqa::ASSESSMENT_OF,
+            distribution.as_ref(),
+            GraphName::DefaultGraph,
+        ))?;
 
-                info!("{} - Extracting urls from distribution", fdk_id);
-                let urls = extract_urls_from_distribution(dist_node.as_ref(), &store)?;
-                info!("{} - Number of urls found {}", fdk_id, urls.len());
+        info!("{} - Extracting urls from distribution", fdk_id);
+        let urls = extract_urls_from_distribution(distribution.as_ref(), &store)?;
+        info!("{} - Number of urls found {}", fdk_id, urls.len());
 
-                for url in urls {
-                    let result = check_url(url.method, url.url, url.url_type);
+        for url in urls {
+            let result = check_url(&url);
+            info!("{}", result.note);
 
-                    info!("{}", result.note);
-
-                    let url_node: NamedNodeRef<'_> =
-                        NamedNodeRef::new_unchecked(result.url.as_str());
-
-                    add_url_status_metric(
-                        dist_node.as_ref(),
-                        url_node,
-                        UrlType::AccessUrl,
-                        result.status,
-                        &metrics_store,
-                    )?;
-                }
-            }
-            None => warn!("Distribution is not a named or blank node {}", fdk_id),
+            let metric = match url.url_type {
+                UrlType::AccessUrl => dcat_mqa::ACCESS_URL_STATUS_CODE,
+                UrlType::DownloadUrl => dcat_mqa::DOWNLOAD_URL_STATUS_CODE,
+            };
+            add_quality_measurement(
+                metric,
+                distribution_assessment.as_ref(),
+                distribution.as_ref(),
+                result.status,
+                &metrics_store,
+            )?;
         }
     }
 
     Ok(metrics_store)
 }
 
-pub fn check_url(method: String, url: String, url_type: UrlType) -> UrlCheckResult {
-    let parsed_url = Url::parse(url.as_str());
+pub fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
+    let parsed_url = Url::parse(url_check.url.as_str());
 
     match parsed_url {
         Ok(mut u) => {
             u.set_query(None);
-            let mut check_result = perform_url_check(method, url, url_type, u.to_string());
+            let mut check_result = perform_url_check(
+                url_check.method.clone(),
+                url_check.url.clone(),
+                url_check.url_type.clone(),
+                u.to_string(),
+            );
 
             if check_result.was_cached {
                 check_result.note = "Cached value".to_string()
@@ -136,8 +149,8 @@ pub fn check_url(method: String, url: String, url_type: UrlType) -> UrlCheckResu
             check_result.value
         }
         Err(_) => UrlCheckResult {
-            url: url,
-            url_type: url_type,
+            url: url_check.url.clone(),
+            url_type: url_check.url_type.clone(),
             status: 400,
             note: "URL is invalid".to_string(),
         },
@@ -218,25 +231,38 @@ fn get_geo_url(method: String, url: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use oxigraph::model::{Literal, NamedNode, NamedOrBlankNodeRef, TermRef};
 
     use super::*;
     use crate::utils::setup_logger;
-    use crate::vocab::dqv;
 
-    fn convert_term_to_named_or_blank_node_ref(term: TermRef) -> Option<NamedOrBlankNodeRef> {
-        match term {
-            TermRef::NamedNode(node) => Some(NamedOrBlankNodeRef::NamedNode(node)),
-            TermRef::BlankNode(node) => Some(NamedOrBlankNodeRef::BlankNode(node)),
-            _ => None,
+    pub fn replace_blank(text: &str) -> String {
+        let mut chars = text.chars().collect::<Vec<char>>();
+        for i in (0..(chars.len() - 2)).rev() {
+            if chars[i] == '_' && chars[i + 1] == ':' {
+                while chars[i] != ' ' {
+                    chars.remove(i);
+                }
+                chars.insert(i, 'b')
+            }
         }
+        chars.iter().collect::<String>()
+    }
+
+    pub fn sorted_lines(text: String) -> Vec<String> {
+        let mut lines: Vec<String> = text
+            .split("\n")
+            .map(|l| l.trim().to_string())
+            .filter(|l| l.len() > 0)
+            .collect();
+        lines.sort();
+        lines
     }
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
         setup_logger(true, None);
 
-        let mqa_event_result = parse_rdf_graph_and_check_urls("1".to_string(), r#"
+        let mqa_event = parse_rdf_graph_and_check_urls("1".to_string(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
             @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
@@ -265,13 +291,7 @@ mod tests {
                 dct:title "Bistandsresultater - bistand etter partner"@nb ; 
                 dct:type "Data" ; 
                 dcat:contactPoint [ rdf:type vcard:Organization ; vcard:hasEmail <mailto:resultater@norad.no> ] ; 
-                dcat:distribution [ 
-                    rdf:type dcat:Distribution ; dct:description "Norsk bistand i tall etter partner"@nb ; 
-                    dct:format <https://www.iana.org/assignments/media-types/application/vnd.openxmlformats-officedocument.spreadsheetml.sheet> , 
-                            <https://www.iana.org/assignments/media-types/text/csv> ; 
-                    dct:license <http://data.norge.no/nlod/no/2.0> ; 
-                    dct:title "Bistandsresultater - bistand etter partner"@nb ; 
-                    dcat:accessURL <http://invalid.url.no> ] ; 
+                dcat:distribution <https://dist.foo> ; 
                 dcat:keyword "oda"@nb , "norad"@nb , "bistand"@nb ; 
                 dcat:landingPage <http://resultater.norad.no/partner/> ; 
                 dcat:theme <http://publications.europa.eu/resource/authority/data-theme/INTR> ; 
@@ -285,81 +305,35 @@ mod tests {
                     skos:prefLabel "Engelsk"@nb . 
                 <http://publications.europa.eu/resource/authority/language/NOR> rdf:type dct:LinguisticSystem ; 
                     <http://publications.europa.eu/ontology/authority/authority-code> "NOR" ; skos:prefLabel "Norsk"@nb .
-        "#.to_string());
 
-        assert!(mqa_event_result.is_ok());
-        let store_actual_result = parse_turtle(mqa_event_result.unwrap().graph);
-        assert!(store_actual_result.is_ok());
-        let store_actual = store_actual_result.unwrap();
+            <https://dist.foo> rdf:type dcat:Distribution ; dct:description "Norsk bistand i tall etter partner"@nb ; 
+                dct:format <https://www.iana.org/assignments/media-types/application/vnd.openxmlformats-officedocument.spreadsheetml.sheet> , 
+                        <https://www.iana.org/assignments/media-types/text/csv> ; 
+                dct:license <http://data.norge.no/nlod/no/2.0> ; 
+                dct:title "Bistandsresultater - bistand etter partner"@nb ; 
+                dcat:accessURL <http://invalid.url.no> .
+        "#.to_string()).unwrap();
+
+        let store_actual = parse_turtle(mqa_event.graph).unwrap();
+        let graph_bytes = dump_graph_as_turtle(&store_actual).unwrap();
+        let graph_actual = std::str::from_utf8(&graph_bytes).unwrap();
+
         assert_eq!(
-            9,
-            store_actual
-                .quads_for_pattern(None, None, None, None)
-                .count()
-        );
-
-        let dataset = NamedNodeRef::new_unchecked("https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572");
-        let mut count = 0;
-
-        for dr in list_distributions(dataset, &store_actual) {
-            count = count + 1;
-
-            if let Ok(dist_quad) = dr {
-                let dist = convert_term_to_named_or_blank_node_ref(dist_quad.object.as_ref());
-                assert!(dist.is_some());
-
-                assert_eq!(
-                    1,
-                    store_actual
-                        .quads_for_pattern(
-                            dist.map(|d| d.into()),
-                            Some(rdf::TYPE),
-                            Some(dcat::DISTRIBUTION_CLASS.into()),
-                            None,
-                        )
-                        .count()
-                );
-
-                let mr = store_actual
-                    .quads_for_pattern(
-                        dist.map(|d| d.into()),
-                        Some(dqv::HAS_QUALITY_MEASUREMENT),
-                        None,
-                        None,
-                    )
-                    .next()
-                    .unwrap();
-
-                if let Ok(measurement_quad) = mr {
-                    let measurement =
-                        convert_term_to_named_or_blank_node_ref(measurement_quad.object.as_ref());
-
-                    let value_quad = store_actual
-                        .quads_for_pattern(
-                            measurement.map(|m| m.into()),
-                            Some(dqv::VALUE),
-                            None,
-                            None,
-                        )
-                        .next()
-                        .unwrap()
-                        .unwrap();
-
-                    info!("{}", value_quad);
-                    assert_eq!(
-                        value_quad.object,
-                        Term::Literal(Literal::new_typed_literal(
-                            "400",
-                            NamedNode::new_unchecked("http://www.w3.org/2001/XMLSchema#integer"),
-                        ))
-                    );
-                } else {
-                    assert!(false);
-                }
-            } else {
-                assert!(false);
-            }
-        }
-        assert_eq!(1, count);
+            sorted_lines(replace_blank(graph_actual)),
+            sorted_lines(replace_blank(
+                r#"
+                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DatasetAssessment> .
+                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
+                    <https://mqa.registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#hasDistributionAssessment> <https://mqa.dist.foo> .
+                    <https://mqa.dist.foo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DistributionAssessment> .
+                    <https://mqa.dist.foo> <http://www.w3.org/ns/dcat#assessmentOf> <https://dist.foo> .
+                    <https://mqa.dist.foo> <http://www.w3.org/ns/dqv#hasQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
+                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dqv#QualityMeasurement> .
+                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#computedOn> <https://dist.foo> .
+                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#isMeasurementOf> <https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode> .
+                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#value> "400"^^<http://www.w3.org/2001/XMLSchema#integer> .
+                "#
+            ))
+        )
     }
 }
