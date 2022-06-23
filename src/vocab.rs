@@ -30,9 +30,6 @@ pub mod dqv {
     pub const QUALITY_MEASUREMENT_CLASS: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#QualityMeasurement");
 
-    pub const HAS_QUALITY_MEASUREMENT: NamedNodeRef<'_> =
-        NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#hasQualityMeasurement");
-
     pub const IS_MEASUREMENT_OF: NamedNodeRef<'_> =
         NamedNodeRef::new_unchecked("http://www.w3.org/ns/dqv#isMeasurementOf");
 
@@ -45,6 +42,25 @@ pub mod dqv {
 
 pub mod dcat_mqa {
     use oxigraph::model::NamedNodeRef;
+
+    pub const ASSESSMENT_OF: NamedNodeRef<'_> =
+        NamedNodeRef::new_unchecked("https://data.norge.no/vocabulary/dcatno-mqa#assessmentOf");
+
+    pub const CONTAINS_QUALITY_MEASUREMENT: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
+        "https://data.norge.no/vocabulary/dcatno-mqa#containsQualityMeasurement",
+    );
+
+    pub const DATASET_ASSESSMENT_CLASS: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
+        "https://data.norge.no/vocabulary/dcatno-mqa#DatasetAssessment",
+    );
+
+    pub const DISTRIBUTION_ASSESSMENT_CLASS: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
+        "https://data.norge.no/vocabulary/dcatno-mqa#DistributionAssessment",
+    );
+
+    pub const HAS_DISTRIBUTION_ASSESSMENT: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
+        "https://data.norge.no/vocabulary/dcatno-mqa#hasDistributionAssessment",
+    );
 
     pub const ACCESS_URL_STATUS_CODE: NamedNodeRef<'_> = NamedNodeRef::new_unchecked(
         "https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode",
