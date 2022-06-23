@@ -11,7 +11,7 @@ use oxigraph::{
 use crate::{
     error::Error,
     url::{UrlCheck, UrlType},
-    vocab::{dcat, dcterms, dqv},
+    vocab::{dcat, dcat_mqa, dcterms, dqv},
 };
 
 /// Parse Turtle RDF and load into store
@@ -183,7 +183,7 @@ pub fn add_quality_measurement(
     ))?;
     store.insert(&Quad::new(
         target,
-        dqv::CONTAINS_QUALITY_MEASUREMENT,
+        dcat_mqa::CONTAINS_QUALITY_MEASUREMENT,
         measurement.as_ref(),
         GraphName::DefaultGraph,
     ))?;

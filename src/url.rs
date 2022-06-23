@@ -349,12 +349,12 @@ mod tests {
             sorted_lines(replace_blank(graph_actual)),
             sorted_lines(replace_blank(
                 r#"
-                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DatasetAssessment> .
-                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
-                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/ns/dcat#hasDistributionAssessment> <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> .
-                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DistributionAssessment> .
-                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/ns/dcat#assessmentOf> <https://dist.foo> .
-                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/ns/dqv#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://data.norge.no/vocabulary/dcatno-mqa#DatasetAssessment> .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <https://data.norge.no/vocabulary/dcatno-mqa#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
+                    <http://localhost:8080/assessments/datasets/0123bf37-5867-4c90-bc74-5a8c4e118572> <https://data.norge.no/vocabulary/dcatno-mqa#hasDistributionAssessment> <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://data.norge.no/vocabulary/dcatno-mqa#DistributionAssessment> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <https://data.norge.no/vocabulary/dcatno-mqa#assessmentOf> <https://dist.foo> .
+                    <http://localhost:8080/assessments/distributions/25c00e79-422c-214f-40ac-ef8ff6c51e2f> <https://data.norge.no/vocabulary/dcatno-mqa#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dqv#QualityMeasurement> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#computedOn> <https://dist.foo> .
                     _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#isMeasurementOf> <https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode> .
