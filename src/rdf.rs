@@ -143,6 +143,57 @@ pub fn extract_urls_from_distribution(
     Ok(urls)
 }
 
+/// Insert dataset assessment into store
+pub fn insert_dataset_assessment(
+    dataset_assessment: NamedNodeRef,
+    dataset: NamedNodeRef,
+    store: &Store,
+) -> Result<(), Error> {
+    store.insert(&Quad::new(
+        dataset_assessment.clone(),
+        rdf::TYPE,
+        dcat_mqa::DATASET_ASSESSMENT_CLASS,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        dataset_assessment.clone(),
+        dcat_mqa::ASSESSMENT_OF,
+        dataset,
+        GraphName::DefaultGraph,
+    ))?;
+
+    Ok(())
+}
+
+/// Insert distribution assessment into store
+pub fn insert_distribution_assessment(
+    dataset_assessment: NamedNodeRef,
+    distribution_assessment: NamedNodeRef,
+    distribution: NamedNodeRef,
+    store: &Store,
+) -> Result<(), Error> {
+    store.insert(&Quad::new(
+        distribution_assessment,
+        rdf::TYPE,
+        dcat_mqa::DISTRIBUTION_ASSESSMENT_CLASS,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        distribution_assessment.clone(),
+        dcat_mqa::ASSESSMENT_OF,
+        distribution,
+        GraphName::DefaultGraph,
+    ))?;
+    store.insert(&Quad::new(
+        dataset_assessment,
+        dcat_mqa::HAS_DISTRIBUTION_ASSESSMENT,
+        distribution_assessment,
+        GraphName::DefaultGraph,
+    ))?;
+
+    Ok(())
+}
+
 /// Add quality measurement to metric store
 pub fn add_quality_measurement(
     metric: NamedNodeRef,

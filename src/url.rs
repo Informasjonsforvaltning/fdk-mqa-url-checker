@@ -5,7 +5,7 @@ use chrono::Utc;
 use lazy_static::lazy_static;
 use log::{info, warn};
 use oxigraph::{
-    model::{vocab::rdf, GraphName, NamedNode, NamedNodeRef, Quad, Term},
+    model::{NamedNode, NamedNodeRef, Quad, Term},
     store::Store,
 };
 use reqwest::blocking::Client;
@@ -23,7 +23,8 @@ use crate::{
     error::Error,
     rdf::{
         add_quality_measurement, dump_graph_as_turtle, extract_urls_from_distribution,
-        get_dataset_node, list_distributions, parse_turtle,
+        get_dataset_node, insert_dataset_assessment, insert_distribution_assessment,
+        list_distributions, parse_turtle,
     },
     schemas::{MQAEvent, MQAEventType},
     vocab::dcat_mqa,
@@ -85,18 +86,7 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
     ))?;
 
     let metrics_store = Store::new()?;
-    metrics_store.insert(&Quad::new(
-        dataset_assessment.clone(),
-        rdf::TYPE,
-        dcat_mqa::DATASET_ASSESSMENT_CLASS,
-        GraphName::DefaultGraph,
-    ))?;
-    metrics_store.insert(&Quad::new(
-        dataset_assessment.clone(),
-        dcat_mqa::ASSESSMENT_OF,
-        dataset_node,
-        GraphName::DefaultGraph,
-    ))?;
+    insert_dataset_assessment(dataset_assessment.as_ref(), dataset_node, &metrics_store)?;
 
     for dist in list_distributions(dataset_node, store).collect::<Result<Vec<Quad>, _>>()? {
         let distribution = if let Term::NamedNode(node) = dist.object.clone() {
@@ -112,24 +102,12 @@ fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Resu
             uuid_from_str(distribution.as_str().to_string())
         ))?;
 
-        metrics_store.insert(&Quad::new(
+        insert_distribution_assessment(
             dataset_assessment.as_ref(),
-            dcat_mqa::HAS_DISTRIBUTION_ASSESSMENT,
             distribution_assessment.as_ref(),
-            GraphName::DefaultGraph,
-        ))?;
-        metrics_store.insert(&Quad::new(
-            distribution_assessment.as_ref(),
-            rdf::TYPE,
-            dcat_mqa::DISTRIBUTION_ASSESSMENT_CLASS,
-            GraphName::DefaultGraph,
-        ))?;
-        metrics_store.insert(&Quad::new(
-            distribution_assessment.clone(),
-            dcat_mqa::ASSESSMENT_OF,
             distribution.as_ref(),
-            GraphName::DefaultGraph,
-        ))?;
+            &metrics_store,
+        )?;
 
         info!("{} - Extracting urls from distribution", fdk_id);
         let urls = extract_urls_from_distribution(distribution.as_ref(), &store)?;
