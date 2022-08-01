@@ -5,6 +5,8 @@ use schema_registry_converter::{
 };
 use serde_derive::{Deserialize, Serialize};
 
+use crate::error::Error;
+
 #[derive(Debug, Serialize)]
 pub enum MQAEventType {
     #[serde(rename = "URLS_CHECKED")]
@@ -39,14 +41,11 @@ pub struct DatasetEvent {
     pub timestamp: i64,
 }
 
-pub async fn setup_schemas(sr_settings: &SrSettings) {
-    info!("Setting up schemas");
-
+pub async fn setup_schemas(sr_settings: &SrSettings) -> Result<u32, Error> {
     let schema = SuppliedSchema {
-        name: Some(String::from("no.fdk.mqa.MQAEvent")),
+        name: Some("no.fdk.mqa.MQAEvent".to_string()),
         schema_type: SchemaType::Avro,
-        schema: String::from(
-            r#"{
+        schema: r#"{
                 "name": "MQAEvent",
                 "namespace": "no.fdk.mqa",
                 "type": "record",
@@ -68,17 +67,12 @@ pub async fn setup_schemas(sr_settings: &SrSettings) {
                     {"name": "graph", "type": "string"},
                     {"name": "timestamp", "type": "long", "logicalType": "timestamp-millis"}
                 ]
-            }"#,
-        ),
+            }"#
+        .to_string(),
         references: vec![],
     };
 
-    match post_schema(sr_settings, String::from("no.fdk.mqa.MQAEvent"), schema).await {
-        Ok(result) => {
-            info!("Schema succesfully registered with id={}", result.id)
-        }
-        Err(e) => {
-            panic!("Schema could not be registered {}", e);
-        }
-    }
+    info!("Setting up schemas");
+    let result = post_schema(sr_settings, String::from("no.fdk.mqa.MQAEvent"), schema).await?;
+    Ok(result.id)
 }
