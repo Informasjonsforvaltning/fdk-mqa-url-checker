@@ -1,32 +1,30 @@
+use std::{env, time::Duration};
+
 use avro_rs::from_value;
-
-use cached::lazy_static;
 use chrono::{TimeZone, Utc};
-
-use log::{error, info};
-
-use futures::TryStreamExt;
-
 use lazy_static::lazy_static;
+use log::{error, info};
+use rdkafka::{
+    config::RDKafkaLogLevel,
+    consumer::{Consumer, StreamConsumer},
+    error::KafkaError,
+    message::BorrowedMessage,
+    producer::{FutureProducer, FutureRecord},
+    ClientConfig, Message,
+};
+use schema_registry_converter::{
+    async_impl::{
+        avro::{AvroDecoder, AvroEncoder},
+        schema_registry::SrSettings,
+    },
+    schema_registry_common::SubjectNameStrategy,
+};
 
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::Consumer;
-use rdkafka::error::KafkaError;
-use rdkafka::message::OwnedMessage;
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::Message;
-
-use schema_registry_converter::async_impl::avro::{AvroDecoder, AvroEncoder};
-use schema_registry_converter::async_impl::schema_registry::SrSettings;
-use schema_registry_converter::schema_registry_common::SubjectNameStrategy;
-
-use std::time::Duration;
-use std::{env, format};
-
-use crate::error::Error;
-use crate::schemas::{DatasetEvent, DatasetEventType, MQAEvent};
-use crate::url::parse_rdf_graph_and_check_urls;
+use crate::{
+    error::Error,
+    schemas::{DatasetEvent, DatasetEventType, MQAEvent},
+    url::parse_rdf_graph_and_check_urls,
+};
 
 lazy_static! {
     pub static ref BROKERS: String = env::var("BROKERS").unwrap_or("localhost:9092".to_string());
@@ -69,69 +67,66 @@ pub fn create_producer() -> Result<FutureProducer, KafkaError> {
 ///   4) produce the result to the output topic.
 /// `tokio::spawn` is used to handle IO-bound tasks in parallel (e.g., producing
 /// the messages).
-pub async fn run_async_processor(sr_settings: SrSettings) -> Result<(), Error> {
+pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> Result<(), Error> {
+    info!("starting worker {}", worker_id);
+
     // Create the `StreamConsumer`, to receive the messages from the topic in form of a `Stream`.
     let consumer = create_consumer()?;
     let producer = create_producer()?;
+    let mut encoder = AvroEncoder::new(sr_settings.clone());
+    let mut decoder = AvroDecoder::new(sr_settings);
 
-    // Create the outer pipeline on the message stream.
-    let stream_processor = consumer.stream().try_for_each(|borrowed_message| {
-        let decoder = AvroDecoder::new(sr_settings.clone());
-        let mut encoder = AvroEncoder::new(sr_settings.clone());
-        let producer = producer.clone();
+    loop {
+        let message = consumer.recv().await?;
+        receive_message(&consumer, &producer, &mut decoder, &mut encoder, &message).await;
+    }
+}
 
-        async move {
-            // Borrowed messages can't outlive the consumer they are received from, so they need to
-            // be owned in order to be sent to a separate thread.
-            let owned_message = borrowed_message.detach();
-            tokio::spawn(async move {
-                let mqa_event = handle_dataset_event(owned_message, decoder).await;
+async fn receive_message(
+    consumer: &StreamConsumer,
+    producer: &FutureProducer,
+    decoder: &mut AvroDecoder<'_>,
+    encoder: &mut AvroEncoder<'_>,
+    message: &BorrowedMessage<'_>,
+) {
+    let mqa_event = handle_dataset_event(decoder, message).await;
+    match mqa_event {
+        Ok(Some(evt)) => {
+            let fdk_id = evt.fdk_id.clone();
+            let schema_strategy =
+                SubjectNameStrategy::RecordNameStrategy(String::from("no.fdk.mqa.MQAEvent"));
 
-                match mqa_event {
-                    Ok(Some(evt)) => {
-                        let fdk_id = evt.fdk_id.clone();
-                        let schema_strategy = SubjectNameStrategy::RecordNameStrategy(
-                            String::from("no.fdk.mqa.MQAEvent"),
-                        );
-
-                        match encoder.encode_struct(evt, &schema_strategy).await {
-                            Ok(encoded_payload) => {
-                                let record: FutureRecord<String, Vec<u8>> =
-                                    FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded_payload);
-                                let produce_future = producer.send(record, Duration::from_secs(0));
-                                match produce_future.await {
-                                    Ok(delivery) => info!(
-                                        "{} - Produce mqa event succeeded {:?}",
-                                        fdk_id, delivery
-                                    ),
-                                    Err((e, _)) => {
-                                        error!("{} - Produce mqa event failed {:?}", fdk_id, e)
-                                    }
-                                }
-                            }
-                            Err(e) => error!("Encoding message failed: {}", e),
+            match encoder.encode_struct(evt, &schema_strategy).await {
+                Ok(encoded_payload) => {
+                    let record: FutureRecord<String, Vec<u8>> =
+                        FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded_payload);
+                    let produce_future = producer.send(record, Duration::from_secs(0));
+                    match produce_future.await {
+                        Ok(delivery) => {
+                            info!("{} - Produce mqa event succeeded {:?}", fdk_id, delivery)
+                        }
+                        Err((e, _)) => {
+                            error!("{} - Produce mqa event failed {:?}", fdk_id, e)
                         }
                     }
-                    Ok(None) => info!("Ignoring unknown event type"),
-                    Err(e) => error!("Handle dataset-event failed: {}", e),
                 }
-            });
-            Ok(())
+                Err(e) => error!("Encoding message failed: {}", e),
+            }
         }
-    });
+        Ok(None) => info!("Ignoring unknown event type"),
+        Err(e) => error!("Handle dataset-event failed: {}", e),
+    }
 
-    info!("Starting event loop");
-    stream_processor.await.expect("stream processing failed");
-    info!("Stream processing terminated");
-
-    Ok(())
+    if let Err(_) = consumer.store_offset_from_message(&message) {
+        error!("failed to store offset");
+    };
 }
 
 async fn parse_dataset_event(
-    msg: OwnedMessage,
-    mut decoder: AvroDecoder<'_>,
+    decoder: &mut AvroDecoder<'_>,
+    message: &BorrowedMessage<'_>,
 ) -> Result<DatasetEvent, String> {
-    match decoder.decode(msg.payload()).await {
+    match decoder.decode(message.payload()).await {
         Ok(result) => match result.name {
             Some(name) => match name.name.as_str() {
                 "DatasetEvent" => match name.namespace {
@@ -154,12 +149,12 @@ async fn parse_dataset_event(
 
 /// Read DatasetEvent message of type DATASET_HARVESTED
 async fn handle_dataset_event(
-    msg: OwnedMessage,
-    decoder: AvroDecoder<'_>,
+    decoder: &mut AvroDecoder<'_>,
+    message: &BorrowedMessage<'_>,
 ) -> Result<Option<MQAEvent>, Error> {
-    info!("Handle DatasetEvent on message {}", msg.offset());
+    info!("Handle DatasetEvent on message {}", message.offset());
 
-    let dataset_event = parse_dataset_event(msg, decoder).await?;
+    let dataset_event = parse_dataset_event(decoder, message).await?;
 
     match dataset_event.event_type {
         DatasetEventType::DatasetHarvested => {
