@@ -22,7 +22,7 @@ use schema_registry_converter::{
 
 use crate::{
     error::Error,
-    schemas::{DatasetEvent, DatasetEventType, MQAEvent},
+    schemas::{DatasetEvent, DatasetEventType, MQAEvent, MQAEventType},
     url::parse_rdf_graph_and_check_urls,
 };
 
@@ -164,8 +164,16 @@ async fn handle_dataset_event(
                 dataset_event.fdk_id, dt
             );
 
-            parse_rdf_graph_and_check_urls(dataset_event.fdk_id, dataset_event.graph)
-                .map(|e| Some(e))
+            parse_rdf_graph_and_check_urls(&dataset_event.fdk_id, dataset_event.graph).map(
+                |graph| {
+                    Some(MQAEvent {
+                        event_type: MQAEventType::UrlsChecked,
+                        fdk_id: dataset_event.fdk_id,
+                        graph,
+                        timestamp: dataset_event.timestamp,
+                    })
+                },
+            )
         }
         _ => Ok(None),
     }
