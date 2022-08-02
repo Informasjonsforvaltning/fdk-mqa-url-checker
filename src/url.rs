@@ -1,7 +1,6 @@
 use std::env;
 
 use cached::{proc_macro::cached, Return};
-use chrono::Utc;
 use lazy_static::lazy_static;
 use log::{info, warn};
 use oxigraph::{
@@ -26,7 +25,6 @@ use crate::{
         get_dataset_node, insert_dataset_assessment, insert_distribution_assessment,
         list_distributions, parse_turtle,
     },
-    schemas::{MQAEvent, MQAEventType},
     vocab::dcat_mqa,
 };
 
@@ -55,19 +53,14 @@ pub struct UrlCheckResult {
     pub note: String,
 }
 
-pub fn parse_rdf_graph_and_check_urls(fdk_id: String, graph: String) -> Result<MQAEvent, Error> {
+pub fn parse_rdf_graph_and_check_urls(fdk_id: &String, graph: String) -> Result<String, Error> {
     let store = parse_turtle(graph)?;
     let dataset_node = get_dataset_node(&store).ok_or("Dataset node not found in graph")?;
-    let metrics_store = check_urls(fdk_id.clone(), dataset_node.as_ref(), &store)?;
+    let metrics_store = check_urls(fdk_id, dataset_node.as_ref(), &store)?;
     let bytes = dump_graph_as_turtle(&metrics_store)?;
     let turtle = std::str::from_utf8(bytes.as_slice())
         .map_err(|e| format!("Failed converting graph to string: {}", e))?;
-    Ok(MQAEvent {
-        event_type: MQAEventType::UrlsChecked,
-        fdk_id: fdk_id.clone(),
-        graph: turtle.to_string(),
-        timestamp: Utc::now().timestamp_millis(),
-    })
+    Ok(turtle.to_string())
 }
 
 fn uuid_from_str(s: String) -> Uuid {
@@ -78,11 +71,11 @@ fn uuid_from_str(s: String) -> Uuid {
     uuid::Uuid::from_u128(u128::from_le_bytes(*head.as_ref()))
 }
 
-fn check_urls(fdk_id: String, dataset_node: NamedNodeRef, store: &Store) -> Result<Store, Error> {
+fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Result<Store, Error> {
     let dataset_assessment = NamedNode::new(format!(
         "{}/assessments/datasets/{}",
         MQA_URI_BASE.clone(),
-        fdk_id.clone()
+        fdk_id
     ))?;
 
     let metrics_store = Store::new()?;
@@ -267,7 +260,7 @@ mod tests {
     fn test_parse_graph_anc_collect_metrics() {
         setup_logger(true, None);
 
-        let mqa_event = parse_rdf_graph_and_check_urls("0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
+        let mqa_graph = parse_rdf_graph_and_check_urls(&"0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
             @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
@@ -319,7 +312,7 @@ mod tests {
                 dcat:accessURL <http://invalid.url.no> .
         "#.to_string()).unwrap();
 
-        let store_actual = parse_turtle(mqa_event.graph).unwrap();
+        let store_actual = parse_turtle(mqa_graph).unwrap();
         let graph_bytes = dump_graph_as_turtle(&store_actual).unwrap();
         let graph_actual = std::str::from_utf8(&graph_bytes).unwrap();
 
