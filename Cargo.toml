@@ -20,12 +20,12 @@ rand = "0.8.4"
 reqwest = { version = "0.10.8", features = ["blocking"] }
 rdkafka = { version = "0.28", features = ["cmake-build"] }
 schema_registry_converter = { version = "2.1.0", features = ["avro", "blocking"] }
-serde = "1.0.136"
-serde_derive = "1.0.136"
+serde = "1.0.141"
+serde_derive = "1.0.141"
 tokio = { version = "1.17.0", features = ["full"] }
 url = "2.2.2"
 thiserror = "1.0.31"
-tracing = "0.1.35"
+tracing = "0.1.36"
 tracing-subscriber =  { version = "0.3.11", features = ["json"] }
 uuid = "1.1.2"
 sha2 = "0.10.2"
