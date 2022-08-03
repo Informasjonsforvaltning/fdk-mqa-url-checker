@@ -1,24 +1,23 @@
-use std::string;
-
-use oxigraph::{model, store};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    LoaderError(#[from] store::LoaderError),
+    LoaderError(#[from] oxigraph::store::LoaderError),
     #[error(transparent)]
-    StorageError(#[from] store::StorageError),
+    StorageError(#[from] oxigraph::store::StorageError),
     #[error(transparent)]
-    SerializerError(#[from] store::SerializerError),
+    SerializerError(#[from] oxigraph::store::SerializerError),
     #[error(transparent)]
-    IriParseError(#[from] model::IriParseError),
+    IriParseError(#[from] oxigraph::model::IriParseError),
     #[error(transparent)]
-    FromUtf8Error(#[from] string::FromUtf8Error),
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     KafkaError(#[from] rdkafka::error::KafkaError),
     #[error(transparent)]
+    AvroError(#[from] avro_rs::Error),
+    #[error(transparent)]
     SRCError(#[from] schema_registry_converter::error::SRCError),
+    #[error(transparent)]
+    JoinError(#[from] tokio::task::JoinError),
     #[error("{0}")]
     String(String),
 }

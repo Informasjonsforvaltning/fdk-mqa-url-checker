@@ -1,6 +1,6 @@
 use std::{env, time::Duration};
 
-use avro_rs::from_value;
+use avro_rs::schema::Name;
 use lazy_static::lazy_static;
 use rdkafka::{
     config::RDKafkaLogLevel,
@@ -15,13 +15,14 @@ use schema_registry_converter::{
         avro::{AvroDecoder, AvroEncoder},
         schema_registry::SrSettings,
     },
+    avro_common::DecodeResult,
     schema_registry_common::SubjectNameStrategy,
 };
 use tracing::{Instrument, Level};
 
 use crate::{
     error::Error,
-    schemas::{DatasetEvent, DatasetEventType, MQAEvent, MQAEventType},
+    schemas::{DatasetEvent, DatasetEventType, InputEvent, MqaEvent, MqaEventType},
     url::parse_rdf_graph_and_check_urls,
 };
 
@@ -35,6 +36,21 @@ lazy_static! {
         env::var("OUTPUT_TOPIC").unwrap_or("mqa-events".to_string());
 }
 
+pub fn create_sr_settings() -> Result<SrSettings, Error> {
+    let mut schema_registry_urls = SCHEMA_REGISTRY.split(",");
+
+    let mut sr_settings_builder =
+        SrSettings::new_builder(schema_registry_urls.next().unwrap_or_default().to_string());
+    schema_registry_urls.for_each(|url| {
+        sr_settings_builder.add_url(url.to_string());
+    });
+
+    let sr_settings = sr_settings_builder
+        .set_timeout(Duration::from_secs(5))
+        .build()?;
+    Ok(sr_settings)
+}
+
 pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", "fdk-mqa-url-checker")
@@ -42,6 +58,7 @@ pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "6000")
         .set("enable.auto.commit", "true")
+        .set("enable.auto.offset.store", "false")
         .set("auto.offset.reset", "beginning")
         .set("api.version.request", "false")
         .set("security.protocol", "plaintext")
@@ -69,7 +86,6 @@ pub fn create_producer() -> Result<FutureProducer, KafkaError> {
 pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> Result<(), Error> {
     tracing::info!(worker_id, "starting worker");
 
-    // Create the `StreamConsumer`, to receive the messages from the topic in form of a `Stream`.
     let consumer = create_consumer()?;
     let producer = create_producer()?;
     let mut encoder = AvroEncoder::new(sr_settings.clone());
@@ -109,84 +125,87 @@ async fn receive_message(
     };
 }
 
-async fn handle_message(
+pub async fn handle_message(
     producer: &FutureProducer,
     decoder: &mut AvroDecoder<'_>,
     encoder: &mut AvroEncoder<'_>,
     message: &BorrowedMessage<'_>,
 ) -> Result<(), Error> {
-    let mqa_event = handle_dataset_event(decoder, message).await;
-    match mqa_event {
-        Ok(Some(evt)) => {
-            let schema_strategy =
-                SubjectNameStrategy::RecordNameStrategy(String::from("no.fdk.mqa.MQAEvent"));
+    match decode_message(decoder, message).await? {
+        InputEvent::DatasetEvent(event) => {
+            let span = tracing::span!(
+                Level::INFO,
+                "event",
+                fdk_id = event.fdk_id,
+                event_type = format!("{:?}", event.event_type),
+            );
 
-            let encoded_payload = encoder.encode_struct(evt, &schema_strategy).await?;
+            let mqa_event = tokio::task::spawn_blocking(move || {
+                let _enter = span.enter();
+                handle_dataset_event(event)
+            })
+            .await??;
+
+            let encoded = encoder
+                .encode_struct(
+                    mqa_event,
+                    &SubjectNameStrategy::RecordNameStrategy("no.fdk.mqa.MQAEvent".to_string()),
+                )
+                .await?;
+
             let record: FutureRecord<String, Vec<u8>> =
-                FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded_payload);
+                FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded);
             producer
                 .send(record, Duration::from_secs(0))
                 .await
                 .map_err(|e| e.0)?;
-            Ok(())
         }
-        Ok(None) => {
-            tracing::info!("Ignoring unknown event type");
-            Ok(())
+        InputEvent::Unknown { namespace, name } => {
+            tracing::warn!(namespace, name, "skipping unknown event");
         }
-        Err(e) => Err(e),
+    }
+    Ok(())
+}
+
+async fn decode_message(
+    decoder: &mut AvroDecoder<'_>,
+    message: &BorrowedMessage<'_>,
+) -> Result<InputEvent, Error> {
+    match decoder.decode(message.payload()).await? {
+        DecodeResult {
+            name:
+                Some(Name {
+                    name,
+                    namespace: Some(namespace),
+                    ..
+                }),
+            value,
+        } => {
+            let event = match (namespace.as_str(), name.as_str()) {
+                ("no.fdk.dataset", "DatasetEvent") => {
+                    InputEvent::DatasetEvent(avro_rs::from_value::<DatasetEvent>(&value)?)
+                }
+                _ => InputEvent::Unknown { namespace, name },
+            };
+            Ok(event)
+        }
+        _ => Err("unable to identify event without namespace and name".into()),
     }
 }
 
-async fn parse_dataset_event(
-    decoder: &mut AvroDecoder<'_>,
-    message: &BorrowedMessage<'_>,
-) -> Result<DatasetEvent, String> {
-    match decoder.decode(message.payload()).await {
-        Ok(result) => match result.name {
-            Some(name) => match name.name.as_str() {
-                "DatasetEvent" => match name.namespace {
-                    Some(namespace) => match namespace.as_str() {
-                        "no.fdk.dataset" => match from_value::<DatasetEvent>(&result.value) {
-                            Ok(event) => Ok(event),
-                            Err(e) => Err(format!("Deserialization failed {}", e)),
-                        },
-                        ns => Err(format!("Unexpected namespace {}", ns)),
-                    },
-                    None => Err("No namespace in schema, while expected".to_string()),
-                },
-                name => Err(format!("Unexpected name {}", name)),
-            },
-            None => Err("No name in schema, while expected".to_string()),
-        },
-        Err(e) => Err(format!("error getting dataset-event: {}", e)),
-    }
-}
-
-/// Read DatasetEvent message of type DATASET_HARVESTED
-async fn handle_dataset_event(
-    decoder: &mut AvroDecoder<'_>,
-    message: &BorrowedMessage<'_>,
-) -> Result<Option<MQAEvent>, Error> {
-    tracing::info!("Handle DatasetEvent on message");
-
-    let dataset_event = parse_dataset_event(decoder, message).await?;
-
-    match dataset_event.event_type {
+fn handle_dataset_event(event: DatasetEvent) -> Result<MqaEvent, Error> {
+    match event.event_type {
         DatasetEventType::DatasetHarvested => {
-            tracing::info!("Processing dataset harvested event",);
-
-            parse_rdf_graph_and_check_urls(&dataset_event.fdk_id, dataset_event.graph).map(
-                |graph| {
-                    Some(MQAEvent {
-                        event_type: MQAEventType::UrlsChecked,
-                        fdk_id: dataset_event.fdk_id,
-                        graph,
-                        timestamp: dataset_event.timestamp,
-                    })
-                },
-            )
+            let graph = parse_rdf_graph_and_check_urls(&event.fdk_id, event.graph)?;
+            Ok(MqaEvent {
+                event_type: MqaEventType::UrlsChecked,
+                fdk_id: event.fdk_id,
+                graph,
+                timestamp: event.timestamp,
+            })
         }
-        _ => Ok(None),
+        DatasetEventType::Unknown(event_type) => {
+            Err(format!("unknown DatasetEventType: {:?}", event_type).into())
+        }
     }
 }
