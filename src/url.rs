@@ -2,7 +2,6 @@ use std::env;
 
 use cached::{proc_macro::cached, Return};
 use lazy_static::lazy_static;
-use log::{info, warn};
 use oxigraph::{
     model::{NamedNode, NamedNodeRef, Quad, Term},
     store::Store,
@@ -85,7 +84,7 @@ fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Res
         let distribution = if let Term::NamedNode(node) = dist.object.clone() {
             node
         } else {
-            warn!("Distribution is not a named node {}", fdk_id);
+            tracing::warn!("Distribution is not a named node {}", fdk_id);
             continue;
         };
 
@@ -102,13 +101,13 @@ fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Res
             &metrics_store,
         )?;
 
-        info!("{} - Extracting urls from distribution", fdk_id);
+        tracing::info!("{} - Extracting urls from distribution", fdk_id);
         let urls = extract_urls_from_distribution(distribution.as_ref(), &store)?;
-        info!("{} - Number of urls found {}", fdk_id, urls.len());
+        tracing::info!("{} - Number of urls found {}", fdk_id, urls.len());
 
         for url in urls {
             let result = check_url(&url);
-            info!("{}", result.note);
+            tracing::info!("{}", result.note);
 
             let metric = match url.url_type {
                 UrlType::AccessUrl => dcat_mqa::ACCESS_URL_STATUS_CODE,
@@ -221,7 +220,7 @@ fn get_geo_url(method: String, url: String) -> String {
             u.to_string()
         }
         Err(e) => {
-            warn!("Parsing geo URL failed {}", e);
+            tracing::warn!("Parsing geo URL failed {}", e);
             url.to_string()
         }
     }
@@ -229,9 +228,7 @@ fn get_geo_url(method: String, url: String) -> String {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use crate::utils::setup_logger;
 
     pub fn replace_blank(text: &str) -> String {
         let mut chars = text.chars().collect::<Vec<char>>();
@@ -258,8 +255,6 @@ mod tests {
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
-        setup_logger(true, None);
-
         let mqa_graph = parse_rdf_graph_and_check_urls(&"0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 

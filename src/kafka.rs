@@ -1,9 +1,7 @@
 use std::{env, time::Duration};
 
 use avro_rs::from_value;
-use chrono::{TimeZone, Utc};
 use lazy_static::lazy_static;
-use log::{error, info};
 use rdkafka::{
     config::RDKafkaLogLevel,
     consumer::{Consumer, StreamConsumer},
@@ -19,6 +17,7 @@ use schema_registry_converter::{
     },
     schema_registry_common::SubjectNameStrategy,
 };
+use tracing::{Instrument, Level};
 
 use crate::{
     error::Error,
@@ -68,7 +67,7 @@ pub fn create_producer() -> Result<FutureProducer, KafkaError> {
 /// `tokio::spawn` is used to handle IO-bound tasks in parallel (e.g., producing
 /// the messages).
 pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> Result<(), Error> {
-    info!("starting worker {}", worker_id);
+    tracing::info!(worker_id, "starting worker");
 
     // Create the `StreamConsumer`, to receive the messages from the topic in form of a `Stream`.
     let consumer = create_consumer()?;
@@ -76,9 +75,21 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
     let mut encoder = AvroEncoder::new(sr_settings.clone());
     let mut decoder = AvroDecoder::new(sr_settings);
 
+    tracing::info!(worker_id, "listening for messages");
     loop {
         let message = consumer.recv().await?;
-        receive_message(&consumer, &producer, &mut decoder, &mut encoder, &message).await;
+        let span = tracing::span!(
+            Level::INFO,
+            "message",
+            // topic = message.topic(),
+            // partition = message.partition(),
+            offset = message.offset(),
+            timestamp = message.timestamp().to_millis(),
+        );
+
+        receive_message(&consumer, &producer, &mut decoder, &mut encoder, &message)
+            .instrument(span)
+            .await;
     }
 }
 
@@ -89,37 +100,42 @@ async fn receive_message(
     encoder: &mut AvroEncoder<'_>,
     message: &BorrowedMessage<'_>,
 ) {
+    match handle_message(producer, decoder, encoder, message).await {
+        Ok(_) => tracing::info!("message handled successfully"),
+        Err(e) => tracing::error!(error = e.to_string(), "failed while handling message"),
+    };
+    if let Err(e) = consumer.store_offset_from_message(&message) {
+        tracing::warn!(error = e.to_string(), "failed to store offset");
+    };
+}
+
+async fn handle_message(
+    producer: &FutureProducer,
+    decoder: &mut AvroDecoder<'_>,
+    encoder: &mut AvroEncoder<'_>,
+    message: &BorrowedMessage<'_>,
+) -> Result<(), Error> {
     let mqa_event = handle_dataset_event(decoder, message).await;
     match mqa_event {
         Ok(Some(evt)) => {
-            let fdk_id = evt.fdk_id.clone();
             let schema_strategy =
                 SubjectNameStrategy::RecordNameStrategy(String::from("no.fdk.mqa.MQAEvent"));
 
-            match encoder.encode_struct(evt, &schema_strategy).await {
-                Ok(encoded_payload) => {
-                    let record: FutureRecord<String, Vec<u8>> =
-                        FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded_payload);
-                    let produce_future = producer.send(record, Duration::from_secs(0));
-                    match produce_future.await {
-                        Ok(delivery) => {
-                            info!("{} - Produce mqa event succeeded {:?}", fdk_id, delivery)
-                        }
-                        Err((e, _)) => {
-                            error!("{} - Produce mqa event failed {:?}", fdk_id, e)
-                        }
-                    }
-                }
-                Err(e) => error!("Encoding message failed: {}", e),
-            }
+            let encoded_payload = encoder.encode_struct(evt, &schema_strategy).await?;
+            let record: FutureRecord<String, Vec<u8>> =
+                FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded_payload);
+            producer
+                .send(record, Duration::from_secs(0))
+                .await
+                .map_err(|e| e.0)?;
+            Ok(())
         }
-        Ok(None) => info!("Ignoring unknown event type"),
-        Err(e) => error!("Handle dataset-event failed: {}", e),
+        Ok(None) => {
+            tracing::info!("Ignoring unknown event type");
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
-
-    if let Err(_) = consumer.store_offset_from_message(&message) {
-        error!("failed to store offset");
-    };
 }
 
 async fn parse_dataset_event(
@@ -152,17 +168,13 @@ async fn handle_dataset_event(
     decoder: &mut AvroDecoder<'_>,
     message: &BorrowedMessage<'_>,
 ) -> Result<Option<MQAEvent>, Error> {
-    info!("Handle DatasetEvent on message {}", message.offset());
+    tracing::info!("Handle DatasetEvent on message");
 
     let dataset_event = parse_dataset_event(decoder, message).await?;
 
     match dataset_event.event_type {
         DatasetEventType::DatasetHarvested => {
-            let dt = Utc.timestamp_millis(dataset_event.timestamp);
-            info!(
-                "{} - Processing dataset harvested event with timestamp {:?}",
-                dataset_event.fdk_id, dt
-            );
+            tracing::info!("Processing dataset harvested event",);
 
             parse_rdf_graph_and_check_urls(&dataset_event.fdk_id, dataset_event.graph).map(
                 |graph| {

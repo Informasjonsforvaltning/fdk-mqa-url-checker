@@ -7,7 +7,6 @@ use schema_registry_converter::async_impl::schema_registry::SrSettings;
 use crate::{
     kafka::{BROKERS, INPUT_TOPIC, OUTPUT_TOPIC, SCHEMA_REGISTRY},
     schemas::setup_schemas,
-    utils::setup_logger,
 };
 
 mod error;
@@ -15,18 +14,24 @@ mod kafka;
 mod rdf;
 mod schemas;
 mod url;
-mod utils;
 mod vocab;
 
 #[tokio::main]
 async fn main() {
-    setup_logger(true, None);
+    tracing_subscriber::fmt()
+        .json()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(false)
+        .with_current_span(false)
+        .init();
 
-    info!("Using following settings:");
-    info!("  brokers:         {}", BROKERS.to_string());
-    info!("  input_topic:     {}", INPUT_TOPIC.to_string());
-    info!("  output_topic:    {}", OUTPUT_TOPIC.to_string());
-    info!("  schema_registry: {}", SCHEMA_REGISTRY.to_string());
+    tracing::info!(
+        brokers = BROKERS.to_string(),
+        schema_registry = SCHEMA_REGISTRY.to_string(),
+        input_topic = INPUT_TOPIC.to_string(),
+        output_topic = OUTPUT_TOPIC.to_string(),
+        "starting service"
+    );
 
     let mut schema_registry_urls = SCHEMA_REGISTRY.split(",");
     let mut sr_settings_builder =
