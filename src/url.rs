@@ -1,6 +1,6 @@
 use cached::{proc_macro::cached, Return};
 use oxigraph::{
-    model::{NamedNode, NamedNodeRef, Quad, Term},
+    model::{NamedNodeRef, Quad, Term},
     store::Store,
 };
 use reqwest::blocking::Client;
@@ -36,23 +36,34 @@ pub struct UrlCheckResult {
     pub note: String,
 }
 
-pub fn parse_rdf_graph_and_check_urls(fdk_id: &String, graph: String) -> Result<String, Error> {
-    let store = parse_turtle(graph)?;
-    let dataset_node = get_dataset_node(&store).ok_or("Dataset node not found in graph")?;
-    let metrics_store = check_urls(fdk_id, dataset_node.as_ref(), &store)?;
-    let bytes = dump_graph_as_turtle(&metrics_store)?;
+pub fn parse_rdf_graph_and_check_urls(
+    input_store: &Store,
+    output_store: &Store,
+    fdk_id: &String,
+    graph: String,
+) -> Result<String, Error> {
+    input_store.clear()?;
+    output_store.clear()?;
+    parse_turtle(input_store, graph)?;
+    let dataset_node = get_dataset_node(input_store).ok_or("Dataset node not found in graph")?;
+    check_urls(fdk_id, dataset_node.as_ref(), input_store, output_store)?;
+    let bytes = dump_graph_as_turtle(output_store)?;
     let turtle = std::str::from_utf8(bytes.as_slice())
         .map_err(|e| format!("Failed converting graph to string: {}", e))?;
     Ok(turtle.to_string())
 }
 
-fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Result<Store, Error> {
-    let dataset_assessment = node_assessment(&store, dataset_node)?;
+fn check_urls(
+    fdk_id: &String,
+    dataset_node: NamedNodeRef,
+    input_store: &Store,
+    output_store: &Store,
+) -> Result<(), Error> {
+    let dataset_assessment = node_assessment(input_store, dataset_node)?;
 
-    let metrics_store = Store::new()?;
-    insert_dataset_assessment(dataset_assessment.as_ref(), dataset_node, &metrics_store)?;
+    insert_dataset_assessment(dataset_assessment.as_ref(), dataset_node, &output_store)?;
 
-    for dist in list_distributions(dataset_node, store).collect::<Result<Vec<Quad>, _>>()? {
+    for dist in list_distributions(dataset_node, input_store).collect::<Result<Vec<Quad>, _>>()? {
         let distribution = if let Term::NamedNode(node) = dist.object.clone() {
             node
         } else {
@@ -60,16 +71,16 @@ fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Res
             continue;
         };
 
-        let distribution_assessment = node_assessment(&store, distribution.as_ref())?;
+        let distribution_assessment = node_assessment(&input_store, distribution.as_ref())?;
         insert_distribution_assessment(
             dataset_assessment.as_ref(),
             distribution_assessment.as_ref(),
             distribution.as_ref(),
-            &metrics_store,
+            &output_store,
         )?;
 
         tracing::info!("{} - Extracting urls from distribution", fdk_id);
-        let urls = extract_urls_from_distribution(distribution.as_ref(), &store)?;
+        let urls = extract_urls_from_distribution(distribution.as_ref(), input_store)?;
         tracing::info!("{} - Number of urls found {}", fdk_id, urls.len());
 
         for url in urls {
@@ -85,12 +96,12 @@ fn check_urls(fdk_id: &String, dataset_node: NamedNodeRef, store: &Store) -> Res
                 distribution_assessment.as_ref(),
                 distribution.as_ref(),
                 result.status,
-                &metrics_store,
+                &output_store,
             )?;
         }
     }
 
-    Ok(metrics_store)
+    Ok(())
 }
 
 pub fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
@@ -222,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
-        let mqa_graph = parse_rdf_graph_and_check_urls(&"0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
+        let mqa_graph = parse_rdf_graph_and_check_urls(&mut Store::new().unwrap(), &mut Store::new().unwrap(), &"0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
             @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
@@ -277,12 +288,8 @@ mod tests {
                 dcat:accessURL <http://invalid.url.no> .
         "#.to_string()).unwrap();
 
-        let store_actual = parse_turtle(mqa_graph).unwrap();
-        let graph_bytes = dump_graph_as_turtle(&store_actual).unwrap();
-        let graph_actual = std::str::from_utf8(&graph_bytes).unwrap();
-
         assert_eq!(
-            sorted_lines(replace_blank(graph_actual)),
+            sorted_lines(replace_blank(mqa_graph.as_str())),
             sorted_lines(replace_blank(
                 r#"
                     <http://dataset.assessment.no> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://data.norge.no/vocabulary/dcatno-mqa#DatasetAssessment> .
