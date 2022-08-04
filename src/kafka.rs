@@ -182,7 +182,7 @@ async fn decode_message(
             value,
         } => {
             let event = match (namespace.as_str(), name.as_str()) {
-                ("no.fdk.dataset", "DatasetEvent") => {
+                ("no.fdk.mqa", "DatasetEvent") => {
                     InputEvent::DatasetEvent(avro_rs::from_value::<DatasetEvent>(&value)?)
                 }
                 _ => InputEvent::Unknown { namespace, name },
