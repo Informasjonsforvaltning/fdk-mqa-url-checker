@@ -104,7 +104,7 @@ dependencies = [
  "strum_macros",
  "thiserror",
  "typed-builder",
- "uuid 0.8.2",
+ "uuid",
  "zerocopy",
 ]
 
@@ -570,13 +570,11 @@ dependencies = [
  "schema_registry_converter",
  "serde",
  "serde_derive",
- "sha2",
  "thiserror",
  "tokio 1.17.0",
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid 1.1.2",
 ]
 
 [[package]]
@@ -2617,12 +2615,6 @@ dependencies = [
  "getrandom 0.2.5",
  "serde",
 ]
-
-[[package]]
-name = "uuid"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd6469f4314d5f1ffec476e05f17cc9a78bc7a27a6a857842170bdf8d6f98d2f"
 
 [[package]]
 name = "valuable"

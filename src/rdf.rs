@@ -1,4 +1,3 @@
-use log::{info, warn};
 use oxigraph::{
     io::GraphFormat,
     model::{
@@ -16,7 +15,7 @@ use crate::{
 
 /// Parse Turtle RDF and load into store
 pub fn parse_turtle(turtle: String) -> Result<Store, Error> {
-    info!("Loading turtle graph");
+    tracing::info!("loading turtle graph");
 
     let store = Store::new()?;
     store.load_graph(
@@ -101,7 +100,34 @@ fn map_format_to_head(format_uri: String) -> String {
     .to_string()
 }
 
-/// Extract accessURLs and downloadURLs from dataset
+/// Extract assessment of node.
+pub fn node_assessment(store: &Store, node: NamedNodeRef) -> Result<NamedNode, Error> {
+    store
+        .quads_for_pattern(
+            Some(node.into()),
+            Some(dcat_mqa::HAS_ASSESSMENT.into()),
+            None,
+            None,
+        )
+        .next()
+        .ok_or(Error::from(format!(
+            "assessment not found for node '{}'",
+            node,
+        )))?
+        .map(|d| match d {
+            Quad {
+                object: Term::NamedNode(n),
+                ..
+            } => Ok(n),
+            _ => Err(format!(
+                "assessment of node '{}' is not a named node: '{}'",
+                node, d.object
+            )
+            .into()),
+        })?
+}
+
+/// Extract accessURLs and downloadURLs from dataset.
 pub fn extract_urls_from_distribution(
     distribution: NamedNodeRef,
     store: &Store,
@@ -123,7 +149,10 @@ pub fn extract_urls_from_distribution(
                     url_type: UrlType::AccessUrl,
                 });
             }
-            node => warn!("Access URL node is not a NamedNode but {}", node),
+            node => tracing::warn!(
+                node = node.to_string(),
+                "access URL node is not a NamedNode but"
+            ),
         }
     }
 
@@ -136,7 +165,10 @@ pub fn extract_urls_from_distribution(
                     url_type: UrlType::DownloadUrl,
                 });
             }
-            node => warn!("Download URL node is not a NamedNode but {}", node),
+            node => tracing::warn!(
+                node = node.to_string(),
+                "download URL node is not a NamedNode"
+            ),
         }
     }
 
@@ -165,7 +197,7 @@ pub fn insert_dataset_assessment(
     Ok(())
 }
 
-/// Insert distribution assessment into store
+/// Insert distribution assessment into store.
 pub fn insert_distribution_assessment(
     dataset_assessment: NamedNodeRef,
     distribution_assessment: NamedNodeRef,
