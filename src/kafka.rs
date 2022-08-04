@@ -204,8 +204,6 @@ fn handle_dataset_event(event: DatasetEvent) -> Result<MqaEvent, Error> {
                 timestamp: event.timestamp,
             })
         }
-        DatasetEventType::Unknown(event_type) => {
-            Err(format!("unknown DatasetEventType: {:?}", event_type).into())
-        }
+        DatasetEventType::Unknown => Err(format!("unknown DatasetEventType").into()),
     }
 }

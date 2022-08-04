@@ -22,11 +22,11 @@ pub struct DatasetEvent {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(field_identifier)]
 pub enum DatasetEventType {
     #[serde(rename = "DATASET_HARVESTED")]
     DatasetHarvested,
-    Unknown(String),
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Serialize)]
