@@ -14,17 +14,16 @@ use crate::{
 };
 
 /// Parse Turtle RDF and load into store
-pub fn parse_turtle(turtle: String) -> Result<Store, Error> {
+pub fn parse_turtle(store: &Store, turtle: String) -> Result<(), Error> {
     tracing::info!("loading turtle graph");
 
-    let store = Store::new()?;
     store.load_graph(
         turtle.as_ref(),
         GraphFormat::Turtle,
         GraphNameRef::DefaultGraph,
         None,
     )?;
-    Ok(store)
+    Ok(())
 }
 
 /// Retrieve datasets

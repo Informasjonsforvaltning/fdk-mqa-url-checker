@@ -2,6 +2,7 @@ use std::{env, time::Duration};
 
 use avro_rs::schema::Name;
 use lazy_static::lazy_static;
+use oxigraph::store::Store;
 use rdkafka::{
     config::RDKafkaLogLevel,
     consumer::{Consumer, StreamConsumer},
@@ -90,6 +91,8 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
     let producer = create_producer()?;
     let mut encoder = AvroEncoder::new(sr_settings.clone());
     let mut decoder = AvroDecoder::new(sr_settings);
+    let input_store = Store::new()?;
+    let output_store = Store::new()?;
 
     tracing::info!(worker_id, "listening for messages");
     loop {
@@ -103,9 +106,17 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
             timestamp = message.timestamp().to_millis(),
         );
 
-        receive_message(&consumer, &producer, &mut decoder, &mut encoder, &message)
-            .instrument(span)
-            .await;
+        receive_message(
+            &consumer,
+            &producer,
+            &mut decoder,
+            &mut encoder,
+            &input_store,
+            &output_store,
+            &message,
+        )
+        .instrument(span)
+        .await;
     }
 }
 
@@ -114,9 +125,20 @@ async fn receive_message(
     producer: &FutureProducer,
     decoder: &mut AvroDecoder<'_>,
     encoder: &mut AvroEncoder<'_>,
+    input_store: &Store,
+    output_store: &Store,
     message: &BorrowedMessage<'_>,
 ) {
-    match handle_message(producer, decoder, encoder, message).await {
+    match handle_message(
+        producer,
+        decoder,
+        encoder,
+        input_store,
+        output_store,
+        message,
+    )
+    .await
+    {
         Ok(_) => tracing::info!("message handled successfully"),
         Err(e) => tracing::error!(error = e.to_string(), "failed while handling message"),
     };
@@ -129,6 +151,8 @@ pub async fn handle_message(
     producer: &FutureProducer,
     decoder: &mut AvroDecoder<'_>,
     encoder: &mut AvroEncoder<'_>,
+    input_store: &Store,
+    output_store: &Store,
     message: &BorrowedMessage<'_>,
 ) -> Result<(), Error> {
     match decode_message(decoder, message).await? {
@@ -141,11 +165,9 @@ pub async fn handle_message(
             );
 
             let key = event.fdk_id.clone();
-            let mqa_event = tokio::task::spawn_blocking(move || {
-                let _enter = span.enter();
-                handle_dataset_event(event)
-            })
-            .await??;
+            let mqa_event = handle_dataset_event(input_store, output_store, event)
+                .instrument(span)
+                .await?;
 
             let encoded = encoder
                 .encode_struct(
@@ -194,10 +216,19 @@ async fn decode_message(
     }
 }
 
-fn handle_dataset_event(event: DatasetEvent) -> Result<MqaEvent, Error> {
+async fn handle_dataset_event(
+    input_store: &Store,
+    output_store: &Store,
+    event: DatasetEvent,
+) -> Result<MqaEvent, Error> {
     match event.event_type {
         DatasetEventType::DatasetHarvested => {
-            let graph = parse_rdf_graph_and_check_urls(&event.fdk_id, event.graph)?;
+            let graph = parse_rdf_graph_and_check_urls(
+                input_store,
+                output_store,
+                &event.fdk_id,
+                event.graph,
+            )?;
             Ok(MqaEvent {
                 event_type: MqaEventType::UrlsChecked,
                 fdk_id: event.fdk_id,
