@@ -140,6 +140,7 @@ pub async fn handle_message(
                 event_type = format!("{:?}", event.event_type),
             );
 
+            let key = event.fdk_id.clone();
             let mqa_event = tokio::task::spawn_blocking(move || {
                 let _enter = span.enter();
                 handle_dataset_event(event)
@@ -154,7 +155,7 @@ pub async fn handle_message(
                 .await?;
 
             let record: FutureRecord<String, Vec<u8>> =
-                FutureRecord::to(&OUTPUT_TOPIC).payload(&encoded);
+                FutureRecord::to(&OUTPUT_TOPIC).key(&key).payload(&encoded);
             producer
                 .send(record, Duration::from_secs(0))
                 .await
