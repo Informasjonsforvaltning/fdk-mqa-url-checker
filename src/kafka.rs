@@ -101,7 +101,7 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
             Level::INFO,
             "message",
             // topic = message.topic(),
-            // partition = message.partition(),
+            partition = message.partition(),
             offset = message.offset(),
             timestamp = message.timestamp().to_millis(),
         );
@@ -223,12 +223,7 @@ async fn handle_dataset_event(
 ) -> Result<MqaEvent, Error> {
     match event.event_type {
         DatasetEventType::DatasetHarvested => {
-            let graph = parse_rdf_graph_and_check_urls(
-                input_store,
-                output_store,
-                &event.fdk_id,
-                event.graph,
-            )?;
+            let graph = parse_rdf_graph_and_check_urls(input_store, output_store, event.graph)?;
             Ok(MqaEvent {
                 event_type: MqaEventType::UrlsChecked,
                 fdk_id: event.fdk_id,
