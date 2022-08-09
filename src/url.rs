@@ -39,14 +39,13 @@ pub struct UrlCheckResult {
 pub fn parse_rdf_graph_and_check_urls(
     input_store: &Store,
     output_store: &Store,
-    fdk_id: &String,
     graph: String,
 ) -> Result<String, Error> {
     input_store.clear()?;
     output_store.clear()?;
     parse_turtle(input_store, graph)?;
     let dataset_node = get_dataset_node(input_store).ok_or("Dataset node not found in graph")?;
-    check_urls(fdk_id, dataset_node.as_ref(), input_store, output_store)?;
+    check_urls(dataset_node.as_ref(), input_store, output_store)?;
     let bytes = dump_graph_as_turtle(output_store)?;
     let turtle = std::str::from_utf8(bytes.as_slice())
         .map_err(|e| format!("Failed converting graph to string: {}", e))?;
@@ -54,7 +53,6 @@ pub fn parse_rdf_graph_and_check_urls(
 }
 
 fn check_urls(
-    fdk_id: &String,
     dataset_node: NamedNodeRef,
     input_store: &Store,
     output_store: &Store,
@@ -67,7 +65,7 @@ fn check_urls(
         let distribution = if let Term::NamedNode(node) = dist.object.clone() {
             node
         } else {
-            tracing::warn!("Distribution is not a named node {}", fdk_id);
+            tracing::warn!("distribution is not a named node");
             continue;
         };
 
@@ -79,13 +77,12 @@ fn check_urls(
             &output_store,
         )?;
 
-        tracing::info!("{} - Extracting urls from distribution", fdk_id);
         let urls = extract_urls_from_distribution(distribution.as_ref(), input_store)?;
-        tracing::info!("{} - Number of urls found {}", fdk_id, urls.len());
+        tracing::debug!(count = urls.len(), "number of urls found");
 
         for url in urls {
             let result = check_url(&url);
-            tracing::info!("{}", result.note);
+            tracing::debug!(note = result.note, "note");
 
             let metric = match url.url_type {
                 UrlType::AccessUrl => dcat_mqa::ACCESS_URL_STATUS_CODE,
@@ -233,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
-        let mqa_graph = parse_rdf_graph_and_check_urls(&mut Store::new().unwrap(), &mut Store::new().unwrap(), &"0123bf37-5867-4c90-bc74-5a8c4e118572".to_string(), r#"
+        let mqa_graph = parse_rdf_graph_and_check_urls(&mut Store::new().unwrap(), &mut Store::new().unwrap(), r#"
             @prefix adms: <http://www.w3.org/ns/adms#> . 
             @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
             @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
