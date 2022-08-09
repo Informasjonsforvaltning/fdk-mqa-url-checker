@@ -15,8 +15,6 @@ use crate::{
 
 /// Parse Turtle RDF and load into store
 pub fn parse_turtle(store: &Store, turtle: String) -> Result<(), Error> {
-    tracing::info!("loading turtle graph");
-
     store.load_graph(
         turtle.as_ref(),
         GraphFormat::Turtle,
