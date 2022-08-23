@@ -12,7 +12,7 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: Informasjonsforvaltning/workflows/.github/workflows/test-rust.yaml@main
     with:
-      repo: ${{ github.repository }}
+      cargo_args: --lib
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

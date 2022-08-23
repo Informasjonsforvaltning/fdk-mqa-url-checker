@@ -1,0 +1,30 @@
+{
+    "name": "DatasetEvent",
+    "namespace": "no.fdk.mqa",
+    "type": "record",
+    "fields": [
+        {
+            "name": "type",
+            "type": {
+                "type": "enum",
+                "name": "DatasetEventType",
+                "symbols": [
+                    "DATASET_HARVESTED"
+                ]
+            }
+        },
+        {
+            "name": "fdkId",
+            "type": "string"
+        },
+        {
+            "name": "graph",
+            "type": "string"
+        },
+        {
+            "name": "timestamp",
+            "type": "long",
+            "logicalType": "timestamp-millis"
+        }
+    ]
+}
