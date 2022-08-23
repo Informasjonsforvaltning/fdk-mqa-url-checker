@@ -230,77 +230,16 @@ mod tests {
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
-        let mqa_graph = parse_rdf_graph_and_check_urls(&mut Store::new().unwrap(), &mut Store::new().unwrap(), r#"
-            @prefix adms: <http://www.w3.org/ns/adms#> . 
-            @prefix cpsv: <http://purl.org/vocab/cpsv#> . 
-            @prefix cpsvno: <https://data.norge.no/vocabulary/cpsvno#> . 
-            @prefix dcat: <http://www.w3.org/ns/dcat#> . 
-            @prefix dcatnomqa: <https://data.norge.no/vocabulary/dcatno-mqa#> . 
-            @prefix dct: <http://purl.org/dc/terms/> . 
-            @prefix dqv: <http://www.w3.org/ns/dqv#> . 
-            @prefix eli: <http://data.europa.eu/eli/ontology#> . 
-            @prefix foaf: <http://xmlns.com/foaf/0.1/> . 
-            @prefix iso: <http://iso.org/25012/2008/dataquality/> . 
-            @prefix oa: <http://www.w3.org/ns/oa#> . 
-            @prefix prov: <http://www.w3.org/ns/prov#> . 
-            @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> . 
-            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . 
-            @prefix schema: <http://schema.org/> . 
-            @prefix skos: <http://www.w3.org/2004/02/skos/core#> . 
-            @prefix vcard: <http://www.w3.org/2006/vcard/ns#> . 
-            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> . 
-            
-            <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> rdf:type dcat:Dataset ; 
-                dcatnomqa:hasAssessment <http://dataset.assessment.no> ;
-                dct:accessRights <http://publications.europa.eu/resource/authority/access-right/PUBLIC> ; 
-                dct:description "Visning over all norsk offentlig bistand fra 1960 til siste kalenderår sortert etter partnerorganisasjoner."@nb ; 
-                dct:identifier "https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572" ; 
-                dct:language <http://publications.europa.eu/resource/authority/language/NOR> , <http://publications.europa.eu/resource/authority/language/ENG> ; 
-                dct:provenance <http://data.brreg.no/datakatalog/provinens/nasjonal> ; 
-                dct:publisher <https://organization-catalogue.fellesdatakatalog.digdir.no/organizations/971277882> ; 
-                dct:title "Bistandsresultater - bistand etter partner"@nb ; 
-                dct:type "Data" ; 
-                dcat:contactPoint [ rdf:type vcard:Organization ; vcard:hasEmail <mailto:resultater@norad.no> ] ; 
-                dcat:distribution <https://dist.foo> ; 
-                dcat:keyword "oda"@nb , "norad"@nb , "bistand"@nb ; 
-                dcat:landingPage <http://resultater.norad.no/partner/> ; 
-                dcat:theme <http://publications.europa.eu/resource/authority/data-theme/INTR> ; 
-                dqv:hasQualityAnnotation [ rdf:type dqv:QualityAnnotation ; dqv:inDimension iso:Currentness ] ; 
-                prov:qualifiedAttribution [ 
-                    rdf:type prov:Attribution ; 
-                    dcat:hadRole <http://registry.it.csiro.au/def/isotc211/CI_RoleCode/contributor> ; 
-                    prov:agent <https://data.brreg.no/enhetsregisteret/api/enheter/971277882> ] . 
-                <http://publications.europa.eu/resource/authority/language/ENG> rdf:type dct:LinguisticSystem ; 
-                    <http://publications.europa.eu/ontology/authority/authority-code> "ENG" ; 
-                    skos:prefLabel "Engelsk"@nb . 
-                <http://publications.europa.eu/resource/authority/language/NOR> rdf:type dct:LinguisticSystem ; 
-                    <http://publications.europa.eu/ontology/authority/authority-code> "NOR" ; skos:prefLabel "Norsk"@nb .
-
-            <https://dist.foo> rdf:type dcat:Distribution ; dct:description "Norsk bistand i tall etter partner"@nb ; 
-                dcatnomqa:hasAssessment <http://dist.foo.assessment.no> ;
-                dct:format <https://www.iana.org/assignments/media-types/application/vnd.openxmlformats-officedocument.spreadsheetml.sheet> , 
-                        <https://www.iana.org/assignments/media-types/text/csv> ; 
-                dct:license <http://data.norge.no/nlod/no/2.0> ; 
-                dct:title "Bistandsresultater - bistand etter partner"@nb ; 
-                dcat:accessURL <http://invalid.url.no> .
-        "#.to_string()).unwrap();
+        let mqa_graph = parse_rdf_graph_and_check_urls(
+            &mut Store::new().unwrap(),
+            &mut Store::new().unwrap(),
+            include_str!("../tests/data/dataset_event.ttl").to_string(),
+        )
+        .unwrap();
 
         assert_eq!(
             sorted_lines(replace_blank(mqa_graph.as_str())),
-            sorted_lines(replace_blank(
-                r#"
-                    <http://dataset.assessment.no> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://data.norge.no/vocabulary/dcatno-mqa#DatasetAssessment> .
-                    <http://dataset.assessment.no> <https://data.norge.no/vocabulary/dcatno-mqa#assessmentOf> <https://registrering.fellesdatakatalog.digdir.no/catalogs/971277882/datasets/29a2bf37-5867-4c90-bc74-5a8c4e118572> .
-                    <http://dataset.assessment.no> <https://data.norge.no/vocabulary/dcatno-mqa#hasDistributionAssessment> <http://dist.foo.assessment.no> .
-                    <http://dist.foo.assessment.no> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://data.norge.no/vocabulary/dcatno-mqa#DistributionAssessment> .
-                    <http://dist.foo.assessment.no> <https://data.norge.no/vocabulary/dcatno-mqa#assessmentOf> <https://dist.foo> .
-                    <http://dist.foo.assessment.no> <https://data.norge.no/vocabulary/dcatno-mqa#containsQualityMeasurement> _:3b11ced7b58fe980add2ebc6b57941ca .
-                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dqv#QualityMeasurement> .
-                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#computedOn> <https://dist.foo> .
-                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#isMeasurementOf> <https://data.norge.no/vocabulary/dcatno-mqa#accessUrlStatusCode> .
-                    _:3b11ced7b58fe980add2ebc6b57941ca <http://www.w3.org/ns/dqv#value> "400"^^<http://www.w3.org/2001/XMLSchema#integer> .
-                "#
-            ))
+            sorted_lines(replace_blank(include_str!("../tests/data/mqa_event.ttl")))
         )
     }
 }
