@@ -1,19 +1,12 @@
 use futures::{stream::FuturesUnordered, StreamExt};
 
-use crate::{
+use fdk_mqa_url_checker::{
     kafka::{
         create_sr_settings, run_async_processor, BROKERS, INPUT_TOPIC, OUTPUT_TOPIC,
         SCHEMA_REGISTRY,
     },
     schemas::setup_schemas,
 };
-
-mod error;
-mod kafka;
-mod rdf;
-mod schemas;
-mod url;
-mod vocab;
 
 #[tokio::main]
 async fn main() {
