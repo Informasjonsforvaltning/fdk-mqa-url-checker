@@ -17,13 +17,14 @@ lazy_static = "1.4.0"
 log = "0.4"
 oxigraph = "0.3.1"
 rand = "0.8.4"
-reqwest = { version = "0.10.8", features = ["blocking"] }
 rdkafka = { version = "0.28", features = ["cmake-build"] }
+reqwest = { version = "0.10.8", features = ["blocking"] }
 schema_registry_converter = { version = "2.1.0", features = ["avro", "blocking"] }
 serde = "1.0.141"
 serde_derive = "1.0.141"
-tokio = { version = "1.17.0", features = ["full"] }
-url = "2.2.2"
 thiserror = "1.0.31"
+tokio = { version = "1.17.0", features = ["full"] }
 tracing = "0.1.36"
 tracing-subscriber =  { version = "0.3.11", features = ["json"] }
+url = "2.2.2"
+uuid = { version = "1.0.0", features = ["v4"] }

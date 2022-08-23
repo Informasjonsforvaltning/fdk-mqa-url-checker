@@ -1,6 +1,6 @@
-mod error;
+pub mod error;
 pub mod kafka;
 mod rdf;
 pub mod schemas;
 mod url;
-mod vocab;
+pub mod vocab;
