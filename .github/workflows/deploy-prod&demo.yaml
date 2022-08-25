@@ -10,8 +10,6 @@ jobs:
   test:
     name: Run tests when merging to main
     uses: Informasjonsforvaltning/workflows/.github/workflows/test-rust.yaml@main
-    with:
-      cargo_args: --lib
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
