@@ -1,6 +1,8 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
     LoaderError(#[from] oxigraph::store::LoaderError),
     #[error(transparent)]
     StorageError(#[from] oxigraph::store::StorageError),
