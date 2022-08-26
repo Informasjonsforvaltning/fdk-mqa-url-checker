@@ -61,7 +61,7 @@ async fn main() {
 
     let http_server = tokio::spawn(
         HttpServer::new(|| App::new().service(ping).service(ready).service(metrics))
-            .bind(("0.0.0.0", 8000))
+            .bind(("0.0.0.0", 8080))
             .unwrap_or_else(|e| {
                 tracing::error!(error = e.to_string(), "metrics server error");
                 std::process::exit(1);
