@@ -11,8 +11,6 @@ jobs:
     name: Run tests when pull request is created
     if: github.event.pull_request.draft == false
     uses: Informasjonsforvaltning/workflows/.github/workflows/test-rust.yaml@main
-    with:
-      cargo_args: --lib
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
