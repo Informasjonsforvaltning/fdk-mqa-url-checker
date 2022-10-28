@@ -26,7 +26,7 @@ use tracing::{Instrument, Level};
 
 use crate::{
     error::Error,
-    metrics::{PROCESSED_MESSAGES, PROCESSING_TIME},
+    metrics::PROCESSING_TIME,
     schemas::{DatasetEvent, DatasetEventType, InputEvent, MqaEvent, MqaEventType},
     url::parse_rdf_graph_and_check_urls,
 };
@@ -133,6 +133,7 @@ async fn receive_message(
     output_store: &Store,
     message: &BorrowedMessage<'_>,
 ) {
+    let mut metric_label = String::new();
     let start_time = Instant::now();
     let result = handle_message(
         producer,
@@ -141,13 +142,14 @@ async fn receive_message(
         input_store,
         output_store,
         message,
+        &mut metric_label,
     )
     .await;
     let elapsed_millis = start_time.elapsed().as_millis();
-    match result {
+    let status_label = match result {
         Ok(_) => {
             tracing::info!(elapsed_millis, "message handled successfully");
-            PROCESSED_MESSAGES.with_label_values(&["success"]).inc();
+            "success"
         }
         Err(e) => {
             tracing::error!(
@@ -155,10 +157,12 @@ async fn receive_message(
                 error = e.to_string(),
                 "failed while handling message"
             );
-            PROCESSED_MESSAGES.with_label_values(&["error"]).inc();
+            "error"
         }
     };
-    PROCESSING_TIME.observe(elapsed_millis as f64 / 1000.0);
+    PROCESSING_TIME
+        .with_label_values(&[status_label, &metric_label])
+        .observe(elapsed_millis as f64 / 1000.0);
     if let Err(e) = consumer.store_offset_from_message(&message) {
         tracing::warn!(error = e.to_string(), "failed to store offset");
     };
@@ -171,15 +175,13 @@ pub async fn handle_message(
     input_store: &Store,
     output_store: &Store,
     message: &BorrowedMessage<'_>,
+    metric_label: &mut String,
 ) -> Result<(), Error> {
     match decode_message(decoder, message).await? {
         InputEvent::DatasetEvent(event) => {
-            let span = tracing::span!(
-                Level::INFO,
-                "event",
-                fdk_id = event.fdk_id,
-                event_type = format!("{:?}", event.event_type),
-            );
+            let event_type = format!("{:?}", event.event_type);
+            metric_label.clone_from(&event_type);
+            let span = tracing::span!(Level::INFO, "event", fdk_id = event.fdk_id, event_type,);
 
             let key = event.fdk_id.clone();
             let mqa_event = handle_dataset_event(input_store, output_store, event)
@@ -201,9 +203,10 @@ pub async fn handle_message(
                 .map_err(|e| e.0)?;
         }
         InputEvent::Unknown { namespace, name } => {
+            metric_label.clone_from(&name);
             tracing::warn!(namespace, name, "skipping unknown event");
         }
-    }
+    };
     Ok(())
 }
 

@@ -45,6 +45,7 @@ pub async fn process_single_message(consumer: StreamConsumer) {
         &input_store,
         &output_store,
         &message,
+        &mut String::new(),
     )
     .await
     .unwrap();
