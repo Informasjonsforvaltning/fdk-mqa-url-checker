@@ -4,7 +4,7 @@ use rdkafka::{
     config::RDKafkaLogLevel,
     consumer::{CommitMode, Consumer, StreamConsumer},
     error::KafkaError,
-    message::BorrowedMessage,
+    message::OwnedMessage,
     producer::{FutureProducer, FutureRecord},
     ClientConfig, Message,
 };
@@ -59,13 +59,13 @@ pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error
 pub async fn receive_message(
     consumer: &StreamConsumer,
     timeout_duration: Duration,
-) -> Result<BorrowedMessage, Error> {
+) -> Result<OwnedMessage, Error> {
     match tokio::time::timeout(timeout_duration, consumer.recv()).await {
         Ok(result) => {
             let message = result?;
             // Commit offset back to kafka.
             consumer.commit_message(&message, CommitMode::Sync)?;
-            Ok(message)
+            Ok(message.detach())
         }
         // Timeout while trying to receive new message.
         Err(_) => Err(Error::KafkaError(KafkaError::NoMessageReceived)),

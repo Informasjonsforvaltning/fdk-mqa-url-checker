@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use schema_registry_converter::{
     async_impl::schema_registry::{post_schema, SrSettings},
     schema_registry_common::{SchemaType, SuppliedSchema},
@@ -27,6 +29,12 @@ pub enum DatasetEventType {
     DatasetHarvested,
     #[serde(other)]
     Unknown,
+}
+
+impl Display for DatasetEventType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

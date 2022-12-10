@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use fdk_mqa_url_checker::{
+    error::Error,
     kafka::{
-        create_consumer, create_producer, create_sr_settings, handle_message, BROKERS, INPUT_TOPIC,
-        OUTPUT_TOPIC, SCHEMA_REGISTRY,
+        create_consumer, create_producer, create_sr_settings, handle_message, Worker, BROKERS,
+        INPUT_TOPIC, OUTPUT_TOPIC, SCHEMA_REGISTRY,
     },
     schemas::{DatasetEvent, DatasetEventType, MqaEvent},
 };
@@ -26,29 +27,22 @@ async fn test() {
     .await;
 }
 
-pub async fn process_single_message(consumer: StreamConsumer) {
-    let producer = create_producer().unwrap();
-    let mut encoder = AvroEncoder::new(create_sr_settings().unwrap());
-    let mut decoder = AvroDecoder::new(create_sr_settings().unwrap());
-    let input_store = Store::new().unwrap();
-    let output_store = Store::new().unwrap();
+pub async fn process_single_message(consumer: StreamConsumer) -> (Result<(), Error>, String) {
+    let mut worker = Worker {
+        producer: create_producer().unwrap(),
+        consumer: create_consumer().unwrap(),
+        encoder: AvroEncoder::new(create_sr_settings().unwrap()),
+        decoder: AvroDecoder::new(create_sr_settings().unwrap()),
+        input_store: Store::new().unwrap(),
+        output_store: Store::new().unwrap(),
+    };
 
     let timeout_duration = Duration::from_millis(3000);
     let message = receive_message(&consumer, timeout_duration)
         .await
         .expect("no message received within timeout duration");
 
-    handle_message(
-        &producer,
-        &mut decoder,
-        &mut encoder,
-        &input_store,
-        &output_store,
-        &message,
-        &mut String::new(),
-    )
-    .await
-    .unwrap();
+    handle_message(&mut worker, &message).await
 }
 
 async fn assert_transformation(input: &str, output: &str) {
@@ -79,7 +73,8 @@ async fn assert_transformation(input: &str, output: &str) {
         .unwrap();
 
     // Wait for url-checker to process message.
-    processor.await;
+    let (result, _) = processor.await;
+    assert!(result.is_ok());
 
     // Consume message produced by url-checker.
     let message = consumer.receive_message::<MqaEvent>().await.unwrap();
