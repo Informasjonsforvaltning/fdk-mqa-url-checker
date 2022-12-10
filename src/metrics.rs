@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{Encoder, HistogramOpts, HistogramVec, Opts, Registry};
+use prometheus::{HistogramOpts, HistogramVec, Opts, Registry};
 
 use crate::error::Error;
 
@@ -22,18 +22,12 @@ pub fn register_metrics() {
     REGISTRY
         .register(Box::new(PROCESSING_TIME.clone()))
         .unwrap_or_else(|e| {
-            tracing::error!(error = e.to_string(), "response_time collector error");
+            tracing::error!(error = e.to_string(), "processing_time collector error");
             std::process::exit(1);
         });
 }
 
 pub fn get_metrics() -> Result<String, Error> {
-    let mut buffer = Vec::new();
-
-    prometheus::TextEncoder::new()
-        .encode(&REGISTRY.gather(), &mut buffer)
-        .map_err(|e| e.to_string())?;
-
-    let metrics = String::from_utf8(buffer).map_err(|e| e.to_string())?;
+    let metrics = prometheus::TextEncoder::new().encode_to_string(&REGISTRY.gather())?;
     Ok(metrics)
 }

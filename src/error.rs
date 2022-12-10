@@ -20,6 +20,8 @@ pub enum Error {
     SRCError(#[from] schema_registry_converter::error::SRCError),
     #[error(transparent)]
     JoinError(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    PrometheusError(#[from] prometheus::Error),
     #[error("{0}")]
     String(String),
 }
