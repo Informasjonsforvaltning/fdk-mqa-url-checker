@@ -19,7 +19,7 @@ log = "0.4"
 oxigraph = "0.3.1"
 prometheus = "0.13.1"
 rand = "0.8.4"
-rdkafka = { version = "0.28", features = ["cmake-build"] }
+rdkafka = { version = "0.29", features = ["cmake-build"] }
 reqwest = { version = "0.10.8", features = ["blocking"] }
 schema_registry_converter = { version = "2.1.0", features = ["avro", "blocking"] }
 serde = "1.0.141"
