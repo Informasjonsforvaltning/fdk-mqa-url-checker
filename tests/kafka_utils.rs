@@ -22,7 +22,7 @@ pub enum Error {
     #[error(transparent)]
     KafkaError(#[from] rdkafka::error::KafkaError),
     #[error(transparent)]
-    AvroError(#[from] avro_rs::Error),
+    AvroError(#[from] apache_avro::Error),
     #[error(transparent)]
     SchemaRegistryError(#[from] schema_registry_converter::error::SRCError),
 }
@@ -149,7 +149,7 @@ impl AvroConsumer<'_> {
         let timeout_duration = Duration::from_millis(3000);
         let message = receive_message(&self.consumer, timeout_duration).await?;
         let decoded = self.decoder.decode(message.payload()).await?;
-        let deserialized = avro_rs::from_value::<D>(&decoded.value)?;
+        let deserialized = apache_avro::from_value::<D>(&decoded.value)?;
         Ok(deserialized)
     }
 }
