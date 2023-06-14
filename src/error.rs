@@ -15,7 +15,7 @@ pub enum Error {
     #[error(transparent)]
     KafkaError(#[from] rdkafka::error::KafkaError),
     #[error(transparent)]
-    AvroError(#[from] avro_rs::Error),
+    AvroError(#[from] apache_avro::Error),
     #[error(transparent)]
     SRCError(#[from] schema_registry_converter::error::SRCError),
     #[error(transparent)]
