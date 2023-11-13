@@ -6,27 +6,27 @@ authors = ["Jeff Reiffers <jeff@ouvir.no>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.1.0"
-apache-avro = "0.14.0"
-cached = "0.43.0"
-chrono = "0.4.19"
-clap = { version = "4.1.11", features = ["derive"] }
-env_logger = "0.8.4"
+actix-web = "4.4.0"
+apache-avro = "0.16.0"
+cached = "0.46.1"
+chrono = "0.4.31"
+clap = { version = "4.4.8", features = ["derive"] }
+env_logger = "0.10.1"
 futures = "0.3"
-http = "0.2.6"
+http = "0.2.10"
 lazy_static = "1.4.0"
 log = "0.4"
-oxigraph = "0.3.1"
-prometheus = "0.13.1"
-rand = "0.8.4"
-rdkafka = { version = "0.29", features = ["cmake-build"] }
-schema_registry_converter = { version = "3.1.0", features = ["avro", "blocking"] }
+oxigraph = "0.3.20"
+prometheus = "0.13.3"
+rand = "0.8.5"
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+schema_registry_converter = { version = "4.0.0", features = ["avro", "blocking"] }
 reqwest = { version = "0.10.10", features = ["blocking"] }
-serde = "1.0.141"
-serde_derive = "1.0.141"
-thiserror = "1.0.31"
-tokio = { version = "1.17.0", features = ["full"] }
-tracing = "0.1.36"
-tracing-subscriber =  { version = "0.3.11", features = ["json"] }
-url = "2.2.2"
-uuid = { version = "1.0.0", features = ["v4"] }
+serde = "1.0.192"
+serde_derive = "1.0.192"
+thiserror = "1.0.50"
+tokio = { version = "1.34.0", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber =  { version = "0.3.17", features = ["json"] }
+url = "2.4.1"
+uuid = { version = "1.5.0", features = ["v4"] }
