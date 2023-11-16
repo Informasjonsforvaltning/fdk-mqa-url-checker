@@ -34,10 +34,12 @@ async fn metrics() -> impl Responder {
 async fn main() {
     tracing_subscriber::fmt()
         .json()
-        .with_max_level(tracing::Level::INFO)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
         .with_current_span(false)
         .init();
+
+    tracing::debug!("Tracing initialized");
 
     register_metrics();
 
