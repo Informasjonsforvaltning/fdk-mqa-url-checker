@@ -67,8 +67,6 @@ pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
         .set("auto.offset.reset", "beginning")
         .set("api.version.request", "false")
         .set("security.protocol", "plaintext")
-        .set("debug", "all")
-        .set_log_level(RDKafkaLogLevel::Debug)
         .create()?;
     consumer.subscribe(&[&INPUT_TOPIC])?;
     Ok(consumer)
