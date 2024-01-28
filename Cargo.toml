@@ -22,7 +22,7 @@ rand = "0.8.5"
 rdkafka = { version = "0.36", features = ["cmake-build"] }
 schema_registry_converter = { version = "4.0.0", features = ["avro", "blocking"] }
 reqwest = { version = "0.10.10", features = ["blocking"] }
-serde = "1.0.192"
+serde = "1.0.196"
 serde_derive = "1.0.192"
 thiserror = "1.0.50"
 tokio = { version = "1.34.0", features = ["full"] }
