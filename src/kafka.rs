@@ -75,6 +75,7 @@ pub fn create_producer() -> Result<FutureProducer, KafkaError> {
     ClientConfig::new()
         .set("bootstrap.servers", BROKERS.clone())
         .set("message.timeout.ms", "5000")
+        .set("compression.type", "snappy")
         .create()
 }
 
