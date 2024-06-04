@@ -66,6 +66,7 @@ pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
         .set("auto.offset.reset", "beginning")
         .set("api.version.request", "false")
         .set("security.protocol", "plaintext")
+        .set("max.partition.fetch.bytes", "2097152")
         .create()?;
     consumer.subscribe(&[&INPUT_TOPIC])?;
     Ok(consumer)
