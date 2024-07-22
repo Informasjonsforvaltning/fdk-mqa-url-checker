@@ -21,7 +21,7 @@ prometheus = "0.13.3"
 rand = "0.8.5"
 rdkafka = { version = "0.36", features = ["cmake-build"] }
 schema_registry_converter = { version = "4.0.0", features = ["avro", "blocking"] }
-reqwest = { version = "0.10.10", features = ["blocking"] }
+reqwest = { version = "0.12.5", features = ["blocking"] }
 serde = "1.0.192"
 serde_derive = "1.0.192"
 thiserror = "1.0.50"
