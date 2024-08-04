@@ -10,7 +10,7 @@ actix-web = "4.4.0"
 apache-avro = "0.16.0"
 cached = "0.46.1"
 chrono = "0.4.31"
-clap = { version = "4.4.11", features = ["derive"] }
+clap = { version = "4.5.13", features = ["derive"] }
 env_logger = "0.10.1"
 futures = "0.3"
 http = "0.2.10"
