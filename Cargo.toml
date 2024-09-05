@@ -13,7 +13,7 @@ chrono = "0.4.31"
 clap = { version = "4.4.11", features = ["derive"] }
 env_logger = "0.10.1"
 futures = "0.3"
-http = "0.2.10"
+http = "1.1.0"
 lazy_static = "1.4.0"
 log = "0.4"
 oxigraph = "0.3.20"
