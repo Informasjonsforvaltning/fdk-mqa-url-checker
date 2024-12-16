@@ -11,6 +11,8 @@ jobs:
     name: Run tests when pull request is created
     if: github.event.pull_request.draft == false
     uses: Informasjonsforvaltning/workflows/.github/workflows/test-rust.yaml@main
+    with:
+      toolchain_tc: nightly-2024-11-01
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -20,23 +22,17 @@ jobs:
     uses: Informasjonsforvaltning/workflows/.github/workflows/build-push.yaml@main
     with:
       app_name: fdk-mqa-url-checker
-      caller_sha: ${{ github.sha }}
-      repo: ${{ github.repository }}
       environment: staging
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GCP_SA_DIGDIR_FDK_GCR_KEY: ${{ secrets.GCP_SA_DIGDIR_FDK_GCR_KEY }}
 
   deploy:
     name: Deploy to staging environment with reusable workflow when test and build is successful
     if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.draft == false }}
     needs: [test,build]
-    uses: Informasjonsforvaltning/workflows/.github/workflows/deploy.yaml@main
+    uses: Informasjonsforvaltning/workflows/.github/workflows/kustomize-deploy.yaml@main
     with:
       app_name: fdk-mqa-url-checker
-      caller_sha: ${{ github.sha }}
-      repo: ${{ github.repository }}
-      actor: ${{ github.actor }}
       environment: staging
       cluster: digdir-fdk-dev
     secrets:

@@ -10,6 +10,8 @@ jobs:
   test:
     name: Run tests when merging to main
     uses: Informasjonsforvaltning/workflows/.github/workflows/test-rust.yaml@main
+    with:
+      toolchain_tc: nightly-2024-11-01
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -18,22 +20,16 @@ jobs:
     uses: Informasjonsforvaltning/workflows/.github/workflows/build-push.yaml@main
     with:
       app_name: fdk-mqa-url-checker
-      caller_sha: ${{ github.sha }}
-      repo: ${{ github.repository }}
       environment: prod
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GCP_SA_DIGDIR_FDK_GCR_KEY: ${{ secrets.GCP_SA_DIGDIR_FDK_GCR_KEY }}
 
   deploy:
     name: Deploy to prod environment with reusable workflow when test and build is successful
     needs: [test,build]
-    uses: Informasjonsforvaltning/workflows/.github/workflows/deploy.yaml@main
+    uses: Informasjonsforvaltning/workflows/.github/workflows/kustomize-deploy.yaml@main
     with:
       app_name: fdk-mqa-url-checker
-      caller_sha: ${{ github.sha }}
-      repo: ${{ github.repository }}
-      actor: ${{ github.actor }}
       environment: prod
       cluster: digdir-fdk-prod
     secrets:
@@ -44,12 +40,9 @@ jobs:
   deploy_demo:
     name: Deploy to demo environment with reusable workflow when prod deploy is successful
     needs: [deploy]
-    uses: Informasjonsforvaltning/workflows/.github/workflows/deploy.yaml@main
+    uses: Informasjonsforvaltning/workflows/.github/workflows/kustomize-deploy.yaml@main
     with:
       app_name: fdk-mqa-url-checker
-      caller_sha: ${{ github.sha }}
-      repo: ${{ github.repository }}
-      actor: ${{ github.actor }}
       environment: demo
       cluster: digdir-fdk-dev
     secrets:
