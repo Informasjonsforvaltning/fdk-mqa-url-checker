@@ -12,7 +12,7 @@ cached = "0.54.0"
 futures = "0.3"
 http = "0.2.10"
 lazy_static = "1.5.0"
-oxigraph = "0.3.20"
+oxigraph = "0.4.4"
 prometheus = "0.13.4"
 rdkafka = { version = "0.37", features = ["cmake-build"] }
 schema_registry_converter = { version = "4.2.0", features = ["avro", "blocking"] }
@@ -25,3 +25,8 @@ tracing = "0.1.41"
 tracing-subscriber =  { version = "0.3.19", features = ["json", "env-filter", "tracing-log"] }
 url = "2.5.4"
 uuid = { version = "1.11.0", features = ["v4"] }
+
+[dev-dependencies]
+sophia_api= "0.9.0"
+sophia_isomorphism = "0.9.0"
+sophia_turtle = "0.9.0"
