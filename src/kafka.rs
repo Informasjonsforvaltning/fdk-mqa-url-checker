@@ -239,7 +239,7 @@ async fn handle_dataset_event(
 ) -> Result<MqaEvent, Error> {
     match event.event_type {
         DatasetEventType::DatasetHarvested => {
-            let graph = parse_rdf_graph_and_check_urls(input_store, output_store, event.graph)?;
+            let graph = parse_rdf_graph_and_check_urls(input_store, output_store, event.graph).await?;
             Ok(MqaEvent {
                 event_type: MqaEventType::UrlsChecked,
                 fdk_id: event.fdk_id,

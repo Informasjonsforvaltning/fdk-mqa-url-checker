@@ -3,7 +3,7 @@ use oxigraph::{
     model::{NamedNodeRef, Quad, Term},
     store::Store,
 };
-use reqwest::blocking::Client;
+use reqwest::Client;
 use url::Url;
 
 use crate::{
@@ -36,7 +36,7 @@ pub struct UrlCheckResult {
     pub note: String,
 }
 
-pub fn parse_rdf_graph_and_check_urls(
+pub async fn parse_rdf_graph_and_check_urls(
     input_store: &Store,
     output_store: &Store,
     graph: String,
@@ -45,15 +45,15 @@ pub fn parse_rdf_graph_and_check_urls(
     output_store.clear()?;
     parse_turtle(input_store, graph)?;
     let dataset_node = get_dataset_node(input_store).ok_or("Dataset node not found in graph")?;
-    check_urls(dataset_node.as_ref(), input_store, output_store)?;
+    check_urls(dataset_node.as_ref(), input_store, output_store).await?;
     let bytes = dump_graph_as_turtle(output_store)?;
     let turtle = std::str::from_utf8(bytes.as_slice())
         .map_err(|e| format!("Failed converting graph to string: {}", e))?;
     Ok(turtle.to_string())
 }
 
-fn check_urls(
-    dataset_node: NamedNodeRef,
+async fn check_urls(
+    dataset_node: NamedNodeRef<'_>,
     input_store: &Store,
     output_store: &Store,
 ) -> Result<(), Error> {
@@ -81,7 +81,7 @@ fn check_urls(
         tracing::debug!(count = urls.len(), "number of urls found");
 
         for url in urls {
-            let result = check_url(&url);
+            let result = check_url(&url).await;
             tracing::debug!(note = result.note, "note");
 
             let metric = match url.url_type {
@@ -101,7 +101,7 @@ fn check_urls(
     Ok(())
 }
 
-pub fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
+pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
     let parsed_url = Url::parse(url_check.url.as_str());
 
     match parsed_url {
@@ -112,7 +112,7 @@ pub fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
                 url_check.url.clone(),
                 url_check.url_type.clone(),
                 u.to_string(),
-            );
+            ).await;
 
             if check_result.was_cached {
                 check_result.note = "Cached value".to_string()
@@ -135,7 +135,7 @@ pub fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
     key = "String",
     convert = r#"{ format!("{}", _parsed_url) }"#
 )]
-fn perform_url_check(
+async fn perform_url_check(
     method: String,
     url: String,
     url_type: UrlType,
@@ -153,7 +153,7 @@ fn perform_url_check(
 
     let mut final_url = url.clone();
     if method != "HEAD" {
-        final_url = get_geo_url(method.clone(), final_url);
+        final_url = get_geo_url(method.clone(), final_url).await;
     }
 
     match client
@@ -161,14 +161,14 @@ fn perform_url_check(
             http::Method::from_bytes(method.as_bytes()).unwrap_or(http::Method::GET),
             final_url.as_str(),
         )
-        .send()
+        .send().await
     {
         Ok(resp) => {
             check_result.note = "Response value".to_string();
             check_result.status = resp.status().as_u16();
 
             if check_result.status == 405 {
-                return perform_url_check("GET".to_string(), url, url_type, _parsed_url);
+                return Box::pin(perform_url_check("GET".to_string(), url, url_type, _parsed_url)).await;
             }
         }
         Err(e) => {
@@ -180,7 +180,7 @@ fn perform_url_check(
     Return::new(check_result)
 }
 
-fn get_geo_url(method: String, url: String) -> String {
+async fn get_geo_url(method: String, url: String) -> String {
     let parsed_url = Url::parse(url.as_str());
 
     match parsed_url {
@@ -208,15 +208,17 @@ mod tests {
     use sophia_api::source::TripleSource;
     use sophia_isomorphism::isomorphic_graphs;
     use sophia_turtle::parser::turtle::parse_str;
+    use tokio::runtime::Runtime;
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
-        let mqa_graph = parse_rdf_graph_and_check_urls(
-            &mut Store::new().unwrap(),
-            &mut Store::new().unwrap(),
-            include_str!("../tests/data/dataset_event.ttl").to_string(),
-        )
-        .unwrap();
+        let mqa_graph = Runtime::new().unwrap().block_on(
+            parse_rdf_graph_and_check_urls(
+                &mut Store::new().unwrap(),
+                &mut Store::new().unwrap(),
+                include_str!("../tests/data/dataset_event.ttl").to_string(),
+            )
+        ).unwrap();
 
         let result_graph: Vec<[SimpleTerm; 3]> = parse_str(&mqa_graph.as_str())
             .collect_triples()
