@@ -204,29 +204,10 @@ fn get_geo_url(method: String, url: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    pub fn replace_blank(text: &str) -> String {
-        let mut chars = text.chars().collect::<Vec<char>>();
-        for i in (0..(chars.len() - 2)).rev() {
-            if chars[i] == '_' && chars[i + 1] == ':' {
-                while chars[i] != ' ' {
-                    chars.remove(i);
-                }
-                chars.insert(i, 'b')
-            }
-        }
-        chars.iter().collect::<String>()
-    }
-
-    pub fn sorted_lines(text: String) -> Vec<String> {
-        let mut lines: Vec<String> = text
-            .split("\n")
-            .map(|l| l.trim().to_string())
-            .filter(|l| l.len() > 0)
-            .collect();
-        lines.sort();
-        lines
-    }
+    use sophia_api::term::SimpleTerm;
+    use sophia_api::source::TripleSource;
+    use sophia_isomorphism::isomorphic_graphs;
+    use sophia_turtle::parser::turtle::parse_str;
 
     #[test]
     fn test_parse_graph_anc_collect_metrics() {
@@ -237,9 +218,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            sorted_lines(replace_blank(mqa_graph.as_str())),
-            sorted_lines(replace_blank(include_str!("../tests/data/mqa_event.ttl")))
-        )
+        let result_graph: Vec<[SimpleTerm; 3]> = parse_str(&mqa_graph.as_str())
+            .collect_triples()
+            .unwrap();
+        let expected_graph: Vec<[SimpleTerm; 3]> = parse_str(include_str!("../tests/data/mqa_event.ttl"))
+            .collect_triples()
+            .unwrap();
+
+        assert!(isomorphic_graphs(&expected_graph, &result_graph).unwrap())
     }
 }
