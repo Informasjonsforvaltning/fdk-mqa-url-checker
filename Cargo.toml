@@ -16,7 +16,7 @@ oxigraph = "0.4.4"
 prometheus = "0.13.4"
 rdkafka = { version = "0.37", features = ["cmake-build"] }
 schema_registry_converter = { version = "4.2.0", features = ["avro", "blocking"] }
-reqwest = { version = "0.12.9", features = ["blocking"] }
+reqwest = { version = "0.12.12", features = ["blocking"] }
 serde = "1.0.216"
 serde_derive = "1.0.216"
 thiserror = "2.0.7"
