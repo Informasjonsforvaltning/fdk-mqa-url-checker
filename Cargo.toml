@@ -12,7 +12,7 @@ cached = { version = "0.54.0", features = ["async"] }
 futures = "0.3"
 http = "1.2.0"
 lazy_static = "1.5.0"
-oxigraph = "0.4.4"
+oxigraph = "0.4.8"
 prometheus = "0.13.4"
 rdkafka = { version = "0.37", features = ["cmake-build"] }
 schema_registry_converter = { version = "4.2.0", features = ["avro", "blocking"] }
