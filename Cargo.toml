@@ -8,7 +8,7 @@ authors = ["Jeff Reiffers <jeff@ouvir.no>"]
 [dependencies]
 actix-web = "4.9.0"
 apache-avro = "0.17.0"
-cached = { version = "0.54.0", features = ["async"] }
+cached = { version = "0.55.1", features = ["async"] }
 futures = "0.3"
 http = "1.2.0"
 lazy_static = "1.5.0"
