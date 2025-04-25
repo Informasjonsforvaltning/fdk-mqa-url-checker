@@ -6,25 +6,25 @@ authors = ["Jeff Reiffers <jeff@ouvir.no>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.9.0"
-apache-avro = "0.17.0"
-cached = { version = "0.54.0", features = ["async"] }
+actix-web = "4.10.2"
+apache-avro = "0.18.0"
+cached = { version = "0.55.1", features = ["async"] }
 futures = "0.3"
-http = "1.2.0"
+http = "1.3.1"
 lazy_static = "1.5.0"
-oxigraph = "0.4.4"
-prometheus = "0.13.4"
-rdkafka = { version = "0.37", features = ["cmake-build"] }
-schema_registry_converter = { version = "4.2.0", features = ["avro", "blocking"] }
-reqwest = { version = "0.12.9", features = ["blocking"] }
-serde = "1.0.216"
-serde_derive = "1.0.216"
-thiserror = "2.0.7"
-tokio = { version = "1.42.0", features = ["full"] }
+oxigraph = "0.4.9"
+prometheus = "0.14.0"
+rdkafka = { version = "0.37.0", features = ["cmake-build"] }
+schema_registry_converter = { version = "4.4.0", features = ["avro", "blocking"] }
+reqwest = { version = "0.12.15", features = ["blocking"] }
+serde = "1.0.219"
+serde_derive = "1.0.219"
+thiserror = "2.0.12"
+tokio = { version = "1.44.2", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber =  { version = "0.3.19", features = ["json", "env-filter", "tracing-log"] }
 url = "2.5.4"
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = { version = "1.16.0", features = ["v4"] }
 
 [dev-dependencies]
 sophia_api= "0.9.0"
