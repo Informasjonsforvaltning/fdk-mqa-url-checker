@@ -4,6 +4,7 @@ use oxigraph::{
     store::Store,
 };
 use reqwest::Client;
+use std::time::Duration;
 use url::Url;
 
 use crate::{
@@ -149,35 +150,46 @@ async fn perform_url_check(
     };
 
     // Create a client so we can make requests
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build();
 
-    let mut final_url = url.clone();
-    if method != "HEAD" {
-        final_url = get_geo_url(method.clone(), final_url).await;
-    }
-
-    match client
-        .request(
-            http::Method::from_bytes(method.as_bytes()).unwrap_or(http::Method::GET),
-            final_url.as_str(),
-        )
-        .send().await
-    {
-        Ok(resp) => {
-            check_result.note = "Response value".to_string();
-            check_result.status = resp.status().as_u16();
-
-            if check_result.status == 405 {
-                return Box::pin(perform_url_check("GET".to_string(), url, url_type, _parsed_url)).await;
+    match client {
+        Ok(req)  => {
+            tracing::debug!("Client created");
+            let mut final_url = url.clone();
+            if method != "HEAD" {
+                final_url = get_geo_url(method.clone(), final_url).await;
             }
+
+            match req
+                .request(
+                    http::Method::from_bytes(method.as_bytes()).unwrap_or(http::Method::GET),
+                    final_url.as_str(),
+                )
+                .send().await
+            {
+                Ok(resp) => {
+                    check_result.note = "Response value".to_string();
+                    check_result.status = resp.status().as_u16();
+
+                    if check_result.status == 405 {
+                        return Box::pin(perform_url_check("GET".to_string(), url, url_type, _parsed_url)).await;
+                    }
+                }
+                Err(e) => {
+                    check_result.note = e.to_string();
+                    check_result.status = 400;
+                }
+            }
+
+            Return::new(check_result)
         }
         Err(e) => {
-            check_result.note = e.to_string();
-            check_result.status = 400;
+            tracing::error!("Failed to create client: {}", e);
+            panic!("Unexpected error when creating request client!");
         }
-    }
-
-    Return::new(check_result)
+    }    
 }
 
 async fn get_geo_url(method: String, url: String) -> String {
