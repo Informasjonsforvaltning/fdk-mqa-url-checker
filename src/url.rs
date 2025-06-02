@@ -42,8 +42,6 @@ pub async fn parse_rdf_graph_and_check_urls(
     output_store: &Store,
     graph: String,
 ) -> Result<String, Error> {
-    input_store.clear()?;
-    output_store.clear()?;
     parse_turtle(input_store, graph)?;
     let dataset_node = get_dataset_node(input_store).ok_or("Dataset node not found in graph")?;
     check_urls(dataset_node.as_ref(), input_store, output_store).await?;
