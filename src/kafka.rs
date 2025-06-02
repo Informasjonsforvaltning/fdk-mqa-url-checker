@@ -94,11 +94,12 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
     let producer = create_producer()?;
     let mut encoder = AvroEncoder::new(sr_settings.clone());
     let mut decoder = AvroDecoder::new(sr_settings);
-    let input_store = Store::new()?;
-    let output_store = Store::new()?;
 
     tracing::info!(worker_id, "listening for messages");
     loop {
+        let input_store = Store::new()?;
+        let output_store = Store::new()?;
+
         let message = consumer.recv().await?;
         let span = tracing::span!(
             Level::INFO,
@@ -240,7 +241,8 @@ async fn handle_dataset_event(
 ) -> Result<MqaEvent, Error> {
     match event.event_type {
         DatasetEventType::DatasetHarvested => {
-            let graph = parse_rdf_graph_and_check_urls(input_store, output_store, event.graph).await?;
+            let graph =
+                parse_rdf_graph_and_check_urls(input_store, output_store, event.graph).await?;
             Ok(MqaEvent {
                 event_type: MqaEventType::UrlsChecked,
                 fdk_id: event.fdk_id,
