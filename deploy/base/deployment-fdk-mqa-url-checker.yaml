@@ -40,4 +40,20 @@ spec:
             exec:
               command:
                 - "true"
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: common
+                  key: NAMESPACE
+            - name: SCHEMA_REGISTRY
+              valueFrom:
+                secretKeyRef:
+                  name: fdk-metadata-quality
+                  key: SCHEMA_REGISTRY
+            - name: BROKERS
+              valueFrom:
+                secretKeyRef:
+                  name: fdk-metadata-quality
+                  key: BROKERS
       restartPolicy: Always
