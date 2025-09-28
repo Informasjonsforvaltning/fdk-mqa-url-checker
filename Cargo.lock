@@ -267,6 +267,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "apache-avro"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce74162d8bc5bc22bd746e1849fb33f2c9416d2ce505d1d65ba49f170a207c90"
+dependencies = [
+ "bigdecimal",
+ "bon",
+ "digest",
+ "log",
+ "miniz_oxide",
+ "num-bigint",
+ "quad-rand",
+ "rand 0.9.1",
+ "regex-lite",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "thiserror 2.0.16",
+ "uuid",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,7 +733,7 @@ name = "fdk-mqa-url-checker"
 version = "0.1.0"
 dependencies = [
  "actix-web",
- "apache-avro",
+ "apache-avro 0.18.0",
  "cached",
  "futures",
  "http 1.3.1",
@@ -1654,7 +1678,7 @@ dependencies = [
  "sparesults",
  "spareval",
  "spargebra",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1682,7 +1706,7 @@ dependencies = [
  "oxiri",
  "oxsdatatypes",
  "rand 0.8.5",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1694,7 +1718,7 @@ dependencies = [
  "oxrdf",
  "oxrdfxml",
  "oxttl",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1707,7 +1731,7 @@ dependencies = [
  "oxiri",
  "oxrdf",
  "quick-xml",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1727,7 +1751,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06fa874d87eae638daae9b4e3198864fe2cce68589f227c0b2cf5b62b1530516"
 dependencies = [
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1740,7 +1764,7 @@ dependencies = [
  "oxilangtag",
  "oxiri",
  "oxrdf",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -2227,11 +2251,11 @@ dependencies = [
 
 [[package]]
 name = "schema_registry_converter"
-version = "4.4.0"
+version = "4.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc8ff8cc8b3e11b6bb6d1b96e1e7471b226244f9385ce4c9bc4e1f02300e2262"
+checksum = "a88502ff545fb0501e0418f06e58936667b1bf99c15b4c7cdd769a917de6c3a2"
 dependencies = [
- "apache-avro",
+ "apache-avro 0.19.0",
  "byteorder",
  "dashmap",
  "futures",
@@ -2483,7 +2507,7 @@ dependencies = [
  "memchr",
  "oxrdf",
  "quick-xml",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -2506,7 +2530,7 @@ dependencies = [
  "sparesults",
  "spargebra",
  "sparopt",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -2520,7 +2544,7 @@ dependencies = [
  "oxrdf",
  "peg",
  "rand 0.8.5",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]

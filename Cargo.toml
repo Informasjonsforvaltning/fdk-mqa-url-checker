@@ -15,7 +15,7 @@ lazy_static = "1.5.0"
 oxigraph = "0.4.9"
 prometheus = "0.14.0"
 rdkafka = "0.37.0"
-schema_registry_converter = { version = "4.4.0", features = ["avro", "blocking"] }
+schema_registry_converter = { version = "4.5.0", features = ["avro", "blocking"] }
 reqwest = { version = "0.12.15", features = ["blocking"] }
 serde = "1.0.219"
 serde_derive = "1.0.219"
