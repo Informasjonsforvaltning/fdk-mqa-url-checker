@@ -2,7 +2,8 @@ use oxigraph::{
     io::{RdfFormat, RdfParser},
     model::{
         vocab::{rdf, xsd},
-        BlankNode, GraphName, GraphNameRef, Literal, NamedNode, NamedNodeRef, Quad, Subject, Term,
+        BlankNode, GraphName, GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNode,
+        Quad, Term,
     },
     store::{QuadIter, SerializerError, Store},
 };
@@ -25,7 +26,7 @@ pub fn parse_turtle(store: &Store, turtle: String) -> Result<(), Error> {
 }
 
 /// Retrieve datasets
-pub fn list_datasets(store: &Store) -> QuadIter {
+pub fn list_datasets(store: &Store) -> QuadIter<'_> {
     store.quads_for_pattern(
         None,
         Some(rdf::TYPE),
@@ -35,7 +36,7 @@ pub fn list_datasets(store: &Store) -> QuadIter {
 }
 
 /// Retrieve distributions of a dataset
-pub fn list_distributions(dataset: NamedNodeRef, store: &Store) -> QuadIter {
+pub fn list_distributions<'a>(dataset: NamedNodeRef<'a>, store: &'a Store) -> QuadIter<'a> {
     store.quads_for_pattern(
         Some(dataset.into()),
         Some(dcat::DISTRIBUTION.into()),
@@ -45,7 +46,7 @@ pub fn list_distributions(dataset: NamedNodeRef, store: &Store) -> QuadIter {
 }
 
 /// Retrieve access urls of a distribution
-pub fn list_access_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter {
+pub fn list_access_urls<'a>(distribution: NamedNodeRef<'a>, store: &'a Store) -> QuadIter<'a> {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcat::ACCESS_URL.into()),
@@ -55,7 +56,7 @@ pub fn list_access_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter {
 }
 
 /// Retrieve download urls of a distribution
-pub fn list_download_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter {
+pub fn list_download_urls<'a>(distribution: NamedNodeRef<'a>, store: &'a Store) -> QuadIter<'a> {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcat::DOWNLOAD_URL.into()),
@@ -65,7 +66,7 @@ pub fn list_download_urls(distribution: NamedNodeRef, store: &Store) -> QuadIter
 }
 
 /// Retrieve distribution formats
-pub fn list_formats(distribution: NamedNodeRef, store: &Store) -> QuadIter {
+pub fn list_formats<'a>(distribution: NamedNodeRef<'a>, store: &'a Store) -> QuadIter<'a> {
     store.quads_for_pattern(
         Some(distribution.into()),
         Some(dcterms::FORMAT.into()),
@@ -78,7 +79,7 @@ pub fn list_formats(distribution: NamedNodeRef, store: &Store) -> QuadIter {
 pub fn get_dataset_node(store: &Store) -> Option<NamedNode> {
     list_datasets(&store).next().and_then(|d| match d {
         Ok(Quad {
-            subject: Subject::NamedNode(n),
+            subject: NamedOrBlankNode::NamedNode(n),
             ..
         }) => Some(n),
         _ => None,

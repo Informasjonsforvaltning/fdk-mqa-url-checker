@@ -59,7 +59,7 @@ pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error
 pub async fn receive_message(
     consumer: &StreamConsumer,
     timeout_duration: Duration,
-) -> Result<BorrowedMessage, Error> {
+) -> Result<BorrowedMessage<'_>, Error> {
     match tokio::time::timeout(timeout_duration, consumer.recv()).await {
         Ok(result) => {
             let message = result?;
