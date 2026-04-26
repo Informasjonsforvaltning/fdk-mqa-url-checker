@@ -12,7 +12,7 @@ cached = { version = "0.56.0", features = ["async"] }
 futures = "0.3.32"
 http = "1.4.0"
 lazy_static = "1.5.0"
-oxigraph = "0.5.6"
+oxigraph = "0.5.7"
 prometheus = "0.14.0"
 rdkafka = "0.39.0"
 schema_registry_converter = { version = "4.8.0", features = ["avro", "blocking"] }
