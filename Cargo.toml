@@ -15,12 +15,12 @@ lazy_static = "1.5.0"
 oxigraph = "0.5.8"
 prometheus = "0.14.0"
 rdkafka = "0.39.0"
-schema_registry_converter = { version = "4.8.0", features = ["avro", "blocking"] }
+schema_registry_converter = { version = "4.9.0", features = ["avro", "blocking"] }
 reqwest = { version = "0.13.3", features = ["blocking"] }
 serde = "1.0.228"
 serde_derive = "1.0.228"
 thiserror = "2.0.18"
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber =  { version = "0.3.23", features = ["json", "env-filter", "tracing-log"] }
 url = "2.5.8"
