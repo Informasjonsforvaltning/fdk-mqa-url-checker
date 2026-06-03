@@ -28,5 +28,5 @@ uuid = { version = "1.23.1", features = ["v4"] }
 
 [dev-dependencies]
 sophia_api= "0.9.0"
-sophia_isomorphism = "0.9.0"
+sophia_isomorphism = "0.10.0"
 sophia_turtle = "0.9.0"
