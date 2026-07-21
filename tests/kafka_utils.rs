@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use fdk_mqa_url_checker::kafka::create_sr_settings_from_urls;
 use rdkafka::{
     config::RDKafkaLogLevel,
     consumer::{CommitMode, Consumer, StreamConsumer},
@@ -17,6 +18,9 @@ use schema_registry_converter::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
+/// Shorter timeout than production; intentional for responsive integration tests.
+const TEST_SCHEMA_REGISTRY_TIMEOUT_SECS: u64 = 5;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -25,27 +29,22 @@ pub enum Error {
     AvroError(#[from] apache_avro::Error),
     #[error(transparent)]
     SchemaRegistryError(#[from] schema_registry_converter::error::SRCError),
+    #[error(transparent)]
+    UrlCheckerError(#[from] fdk_mqa_url_checker::error::Error),
 }
 
 /// Creates SrSettings from comma separated string of schema registry urls.
 pub fn create_sr_settings(schema_registry_urls: &str) -> Result<SrSettings, Error> {
-    let mut urls = schema_registry_urls.split(",");
-    let mut sr_settings_builder =
-        SrSettings::new_builder(urls.next().unwrap_or_default().to_string());
-    urls.for_each(|url| {
-        sr_settings_builder.add_url(url.to_string());
-    });
-
-    let sr_settings = sr_settings_builder
-        .set_timeout(Duration::from_secs(5))
-        .build()?;
-    Ok(sr_settings)
+    Ok(create_sr_settings_from_urls(
+        schema_registry_urls,
+        Duration::from_secs(TEST_SCHEMA_REGISTRY_TIMEOUT_SECS),
+    )?)
 }
 
 /// Consumes all messages until no more can be received within the timeout period.
 pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error> {
     loop {
-        // Loop untill no nessage can be received within timeout.
+        // Loop until no message can be received within timeout.
         let timeout_duration = Duration::from_millis(500);
         match receive_message(consumer, timeout_duration).await {
             Err(Error::KafkaError(KafkaError::NoMessageReceived)) => return Ok(()),
