@@ -7,7 +7,7 @@ use fdk_mqa_url_checker::{
     },
     schemas::{DatasetEvent, DatasetEventType, MqaEvent},
 };
-use kafka_utils::{consume_all_messages, receive_message, AvroProducer};
+use kafka_utils::{consume_all_messages, recv_with_timeout, AvroProducer};
 use oxigraph::store::Store;
 use rdkafka::consumer::StreamConsumer;
 use schema_registry_converter::async_impl::avro::{AvroDecoder, AvroEncoder};
@@ -36,7 +36,7 @@ pub async fn process_single_message(consumer: StreamConsumer) {
     let output_store = Store::new().unwrap();
 
     let timeout_duration = Duration::from_millis(3000);
-    let message = receive_message(&consumer, timeout_duration)
+    let message = recv_with_timeout(&consumer, timeout_duration)
         .await
         .expect("no message received within timeout duration");
 

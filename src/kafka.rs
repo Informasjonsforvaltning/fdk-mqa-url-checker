@@ -98,10 +98,9 @@ pub fn create_producer() -> Result<FutureProducer, KafkaError> {
 /// Creates all the resources and runs the event loop. The event loop will:
 ///   1) receive a stream of messages from the `StreamConsumer`.
 ///   2) filter out eventual Kafka errors.
-///   3) send the message to a thread pool for processing.
+///   3) process each message asynchronously (decode, check URLs, encode).
 ///   4) produce the result to the output topic.
-/// `tokio::spawn` is used to handle IO-bound tasks in parallel (e.g., producing
-/// the messages).
+/// Concurrent workers are started with `tokio::spawn` from the binary entrypoint.
 pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> Result<(), Error> {
     tracing::info!(worker_id, "starting worker");
 
@@ -125,7 +124,7 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
             timestamp = message.timestamp().to_millis(),
         );
 
-        receive_message(
+        process_received_message(
             &consumer,
             &producer,
             &mut decoder,
@@ -139,7 +138,7 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
     }
 }
 
-async fn receive_message(
+async fn process_received_message(
     consumer: &StreamConsumer,
     producer: &FutureProducer,
     decoder: &mut AvroDecoder<'_>,
