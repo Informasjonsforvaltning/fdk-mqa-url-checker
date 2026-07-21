@@ -19,8 +19,13 @@ use crate::{
 };
 
 const URL_CHECK_TIMEOUT_SECS: u64 = 10;
+/// Cache TTL in seconds. Must match the `time` value on `perform_url_check`.
+const URL_CACHE_TTL_SECS: u64 = 300;
 const HTTP_STATUS_METHOD_NOT_ALLOWED: u16 = 405;
 const HTTP_STATUS_BAD_REQUEST: u16 = 400;
+
+// `#[cached(time = ...)]` requires a literal; keep it equal to URL_CACHE_TTL_SECS.
+const _: () = assert!(URL_CACHE_TTL_SECS == 300);
 
 lazy_static! {
     static ref HTTP_CLIENT: Result<Client, reqwest::Error> = Client::builder()
@@ -193,6 +198,7 @@ pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
 }
 
 #[cached(
+    // Keep in sync with URL_CACHE_TTL_SECS (proc-macro requires a literal).
     time = 300,
     with_cached_flag = true,
     key = "String",

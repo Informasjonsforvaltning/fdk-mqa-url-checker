@@ -30,6 +30,12 @@ use crate::{
     url::parse_rdf_graph_and_check_urls,
 };
 
+const CONSUMER_GROUP_ID: &str = "fdk-mqa-url-checker";
+const SCHEMA_REGISTRY_TIMEOUT_SECS: u64 = 30;
+const SESSION_TIMEOUT_MS: &str = "6000";
+const MAX_PARTITION_FETCH_BYTES: &str = "2097152"; // 2 MiB
+const MESSAGE_TIMEOUT_MS: &str = "5000";
+
 lazy_static! {
     pub static ref BROKERS: String = env::var("BROKERS").unwrap_or("localhost:9092".to_string());
     pub static ref SCHEMA_REGISTRY: String =
@@ -50,23 +56,23 @@ pub fn create_sr_settings() -> Result<SrSettings, Error> {
     });
 
     let sr_settings = sr_settings_builder
-        .set_timeout(Duration::from_secs(30))
+        .set_timeout(Duration::from_secs(SCHEMA_REGISTRY_TIMEOUT_SECS))
         .build()?;
     Ok(sr_settings)
 }
 
 pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("group.id", "fdk-mqa-url-checker")
+        .set("group.id", CONSUMER_GROUP_ID)
         .set("bootstrap.servers", BROKERS.clone())
         .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
+        .set("session.timeout.ms", SESSION_TIMEOUT_MS)
         .set("enable.auto.commit", "true")
         .set("enable.auto.offset.store", "false")
         .set("auto.offset.reset", "beginning")
         .set("api.version.request", "false")
         .set("security.protocol", "plaintext")
-        .set("max.partition.fetch.bytes", "2097152")
+        .set("max.partition.fetch.bytes", MAX_PARTITION_FETCH_BYTES)
         .create()?;
     consumer.subscribe(&[&INPUT_TOPIC])?;
     Ok(consumer)
@@ -75,7 +81,7 @@ pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
 pub fn create_producer() -> Result<FutureProducer, KafkaError> {
     ClientConfig::new()
         .set("bootstrap.servers", BROKERS.clone())
-        .set("message.timeout.ms", "5000")
+        .set("message.timeout.ms", MESSAGE_TIMEOUT_MS)
         .set("compression.type", "snappy")
         .create()
 }
