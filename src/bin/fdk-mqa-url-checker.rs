@@ -9,6 +9,9 @@ use fdk_mqa_url_checker::{
 };
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 
+const HTTP_PORT: u16 = 8080;
+const WORKER_COUNT: usize = 4;
+
 #[get("/ping")]
 async fn ping() -> impl Responder {
     "pong"
@@ -63,7 +66,7 @@ async fn main() {
 
     let http_server = tokio::spawn(
         HttpServer::new(|| App::new().service(ping).service(ready).service(metrics))
-            .bind(("0.0.0.0", 8080))
+            .bind(("0.0.0.0", HTTP_PORT))
             .unwrap_or_else(|e| {
                 tracing::error!(error = e.to_string(), "metrics server error");
                 std::process::exit(1);
@@ -72,7 +75,7 @@ async fn main() {
             .map(|f| f.map_err(|e| e.into())),
     );
 
-    (0..4)
+    (0..WORKER_COUNT)
         .map(|i| tokio::spawn(run_async_processor(i, sr_settings.clone())))
         .chain(std::iter::once(http_server))
         .collect::<FuturesUnordered<_>>()
