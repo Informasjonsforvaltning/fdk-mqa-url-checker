@@ -47,17 +47,26 @@ lazy_static! {
 }
 
 pub fn create_sr_settings() -> Result<SrSettings, Error> {
-    let mut schema_registry_urls = SCHEMA_REGISTRY.split(",");
+    create_sr_settings_from_urls(
+        &SCHEMA_REGISTRY,
+        Duration::from_secs(SCHEMA_REGISTRY_TIMEOUT_SECS),
+    )
+}
+
+/// Build schema registry settings from a comma-separated URL list.
+pub fn create_sr_settings_from_urls(
+    schema_registry_urls: &str,
+    timeout: Duration,
+) -> Result<SrSettings, Error> {
+    let mut urls = schema_registry_urls.split(",");
 
     let mut sr_settings_builder =
-        SrSettings::new_builder(schema_registry_urls.next().unwrap_or_default().to_string());
-    schema_registry_urls.for_each(|url| {
+        SrSettings::new_builder(urls.next().unwrap_or_default().to_string());
+    urls.for_each(|url| {
         sr_settings_builder.add_url(url.to_string());
     });
 
-    let sr_settings = sr_settings_builder
-        .set_timeout(Duration::from_secs(SCHEMA_REGISTRY_TIMEOUT_SECS))
-        .build()?;
+    let sr_settings = sr_settings_builder.set_timeout(timeout).build()?;
     Ok(sr_settings)
 }
 

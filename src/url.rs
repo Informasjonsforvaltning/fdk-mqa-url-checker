@@ -310,30 +310,30 @@ fn append_ogc_get_capabilities_query(service: &OgcService, url: &str) -> String 
 
 #[cfg(test)]
 mod tests {
+    mod common {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/common/assert_isomorphic_turtle.rs"
+        ));
+    }
+
     use super::*;
-    use sophia_api::term::SimpleTerm;
-    use sophia_api::source::TripleSource;
-    use sophia_isomorphism::isomorphic_graphs;
-    use sophia_turtle::parser::turtle::parse_str;
     use tokio::runtime::Runtime;
 
     #[test]
-    fn test_parse_graph_anc_collect_metrics() {
-        let mqa_graph = Runtime::new().unwrap().block_on(
-            parse_rdf_graph_and_check_urls(
+    fn test_parse_graph_and_collect_metrics() {
+        let mqa_graph = Runtime::new()
+            .unwrap()
+            .block_on(parse_rdf_graph_and_check_urls(
                 &mut Store::new().unwrap(),
                 &mut Store::new().unwrap(),
                 include_str!("../tests/data/dataset_event.ttl").to_string(),
-            )
-        ).unwrap();
-
-        let result_graph: Vec<[SimpleTerm; 3]> = parse_str(&mqa_graph.as_str())
-            .collect_triples()
-            .unwrap();
-        let expected_graph: Vec<[SimpleTerm; 3]> = parse_str(include_str!("../tests/data/mqa_event.ttl"))
-            .collect_triples()
+            ))
             .unwrap();
 
-        assert!(isomorphic_graphs(&expected_graph, &result_graph).unwrap())
+        common::assert_isomorphic_turtle(
+            &mqa_graph,
+            include_str!("../tests/data/mqa_event.ttl"),
+        );
     }
 }

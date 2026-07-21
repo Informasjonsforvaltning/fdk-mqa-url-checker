@@ -11,18 +11,15 @@ use kafka_utils::{consume_all_messages, receive_message, AvroProducer};
 use oxigraph::store::Store;
 use rdkafka::consumer::StreamConsumer;
 use schema_registry_converter::async_impl::avro::{AvroDecoder, AvroEncoder};
-use sophia_api::term::SimpleTerm;
-use sophia_api::source::TripleSource;
-use sophia_isomorphism::isomorphic_graphs;
-use sophia_turtle::parser::turtle::parse_str;
 use uuid::Uuid;
 
 use crate::kafka_utils::AvroConsumer;
 
+mod common;
 mod kafka_utils;
 
 #[tokio::test]
-async fn test() {
+async fn dataset_harvested_produces_urls_checked_event() {
     assert_transformation(
         include_str!("data/dataset_event.ttl"),
         include_str!("data/mqa_event.ttl"),
@@ -32,8 +29,9 @@ async fn test() {
 
 pub async fn process_single_message(consumer: StreamConsumer) {
     let producer = create_producer().unwrap();
-    let mut encoder = AvroEncoder::new(create_sr_settings().unwrap());
-    let mut decoder = AvroDecoder::new(create_sr_settings().unwrap());
+    let sr_settings = create_sr_settings().unwrap();
+    let mut encoder = AvroEncoder::new(sr_settings.clone());
+    let mut decoder = AvroDecoder::new(sr_settings);
     let input_store = Store::new().unwrap();
     let output_store = Store::new().unwrap();
 
@@ -87,12 +85,5 @@ async fn assert_transformation(input: &str, output: &str) {
     // Consume message produced by url-checker.
     let message = consumer.receive_message::<MqaEvent>().await.unwrap();
 
-    let result_graph: Vec<[SimpleTerm; 3]> = parse_str(&message.graph.as_str())
-        .collect_triples()
-        .unwrap();
-    let expected_graph: Vec<[SimpleTerm; 3]> = parse_str(&output)
-        .collect_triples()
-        .unwrap();
-
-    assert!(isomorphic_graphs(&expected_graph, &result_graph).unwrap())
+    common::assert_isomorphic_turtle(&message.graph, output);
 }
