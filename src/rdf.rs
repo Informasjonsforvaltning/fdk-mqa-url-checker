@@ -126,39 +126,47 @@ pub fn extract_urls_from_distribution(
         None => UrlRequestStrategy::HttpHead,
     };
 
-    for acc_url_result in list_access_urls(distribution, store) {
-        match acc_url_result?.object {
-            Term::NamedNode(acc_url_node) => {
-                urls.push(UrlCheck {
-                    strategy: strategy.clone(),
-                    url: acc_url_node.into_string(),
-                    url_type: UrlType::AccessUrl,
-                });
-            }
-            node => tracing::warn!(
-                node = node.to_string(),
-                "access URL node is not a NamedNode but"
-            ),
-        }
-    }
-
-    for dl_url_result in list_download_urls(distribution, store) {
-        match dl_url_result?.object {
-            Term::NamedNode(dl_url_node) => {
-                urls.push(UrlCheck {
-                    strategy: strategy.clone(),
-                    url: dl_url_node.into_string(),
-                    url_type: UrlType::DownloadUrl,
-                });
-            }
-            node => tracing::warn!(
-                node = node.to_string(),
-                "download URL node is not a NamedNode"
-            ),
-        }
-    }
+    push_urls_from_quads(
+        &mut urls,
+        list_access_urls(distribution, store),
+        &strategy,
+        UrlType::AccessUrl,
+        "access URL",
+    )?;
+    push_urls_from_quads(
+        &mut urls,
+        list_download_urls(distribution, store),
+        &strategy,
+        UrlType::DownloadUrl,
+        "download URL",
+    )?;
 
     Ok(urls)
+}
+
+fn push_urls_from_quads(
+    urls: &mut Vec<UrlCheck>,
+    quads: QuadIter<'_>,
+    strategy: &UrlRequestStrategy,
+    url_type: UrlType,
+    kind: &str,
+) -> Result<(), Error> {
+    for quad in quads {
+        match quad?.object {
+            Term::NamedNode(node) => {
+                urls.push(UrlCheck {
+                    strategy: strategy.clone(),
+                    url: node.into_string(),
+                    url_type: url_type.clone(),
+                });
+            }
+            node => tracing::warn!(
+                node = node.to_string(),
+                "{kind} node is not a NamedNode"
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Insert dataset assessment into store
