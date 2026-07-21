@@ -49,29 +49,7 @@ pub async fn setup_schemas(sr_settings: &SrSettings) -> Result<(), Error> {
     register_schema(
         sr_settings,
         "no.fdk.mqa.MQAEvent",
-        r#"{
-                "name": "MQAEvent",
-                "namespace": "no.fdk.mqa",
-                "type": "record",
-                "fields": [
-                    {
-                        "name": "type", 
-                        "type": {
-                            "type": "enum",
-                            "name": "MQAEventType",
-                            "symbols": [
-                                "URLS_CHECKED", 
-                                "PROPERTIES_CHECKED", 
-                                "DCAT_COMPLIANCE_CHECKED", 
-                                "SCORE_CALCULATED"
-                            ]
-                        }
-                    },
-                    {"name": "fdkId", "type": "string"},
-                    {"name": "graph", "type": "string"},
-                    {"name": "timestamp", "type": "long", "logicalType": "timestamp-millis"}
-                ]
-            }"#,
+        include_str!("../kafka/schemas/no.fdk.mqa.MQAEvent.json"),
     )
     .await?;
     Ok(())
@@ -98,6 +76,6 @@ pub async fn register_schema(
     )
     .await?;
 
-    tracing::info!(id = schema.id, name, "schema succesfully registered");
+    tracing::info!(id = schema.id, name, "schema successfully registered");
     Ok(())
 }

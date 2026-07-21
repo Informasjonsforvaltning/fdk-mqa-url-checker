@@ -46,7 +46,7 @@ pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error
     loop {
         // Loop until no message can be received within timeout.
         let timeout_duration = Duration::from_millis(500);
-        match receive_message(consumer, timeout_duration).await {
+        match recv_with_timeout(consumer, timeout_duration).await {
             Err(Error::KafkaError(KafkaError::NoMessageReceived)) => return Ok(()),
             Err(e) => return Err(e),
             Ok(_) => (),
@@ -55,7 +55,7 @@ pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error
 }
 
 /// Consumes and returns a single message, if received within the timeout period.
-pub async fn receive_message(
+pub async fn recv_with_timeout(
     consumer: &StreamConsumer,
     timeout_duration: Duration,
 ) -> Result<BorrowedMessage<'_>, Error> {
@@ -146,7 +146,7 @@ impl AvroConsumer<'_> {
     /// Receives and decodes a kafka message.
     pub async fn receive_message<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let timeout_duration = Duration::from_millis(3000);
-        let message = receive_message(&self.consumer, timeout_duration).await?;
+        let message = recv_with_timeout(&self.consumer, timeout_duration).await?;
         let decoded = self.decoder.decode(message.payload()).await?;
         let deserialized = apache_avro::from_value::<D>(&decoded.value)?;
         Ok(deserialized)
