@@ -10,7 +10,7 @@ use oxigraph::{
 
 use crate::{
     error::Error,
-    url::{UrlCheck, UrlType},
+    url::{format_uri_to_request_strategy, UrlCheck, UrlRequestStrategy, UrlType},
     vocab::{dcat, dcat_mqa, dcterms, dqv},
 };
 
@@ -86,17 +86,6 @@ pub fn get_dataset_node(store: &Store) -> Option<NamedNode> {
     })
 }
 
-/// Map GEO location method
-fn map_format_to_head(format_uri: String) -> String {
-    let fmt = format_uri.split("/").last().unwrap_or_default();
-    match fmt {
-        "WMS_SRVC" => "WMS",
-        "WFS_SRVC" => "WFS",
-        "WCS_SRVC" => "WCS",
-        _ => "HEAD",
-    }
-    .to_string()
-}
 
 /// Extract assessment of node.
 pub fn node_assessment(store: &Store, node: NamedNodeRef) -> Result<NamedNode, Error> {
@@ -132,17 +121,16 @@ pub fn extract_urls_from_distribution(
 ) -> Result<Vec<UrlCheck>, Error> {
     let mut urls = Vec::new();
 
-    // Map format to HEAD
-    let head = match list_formats(distribution, store).next() {
-        Some(fmt) => map_format_to_head(fmt?.object.to_string()),
-        None => "HEAD".to_string(),
+    let strategy = match list_formats(distribution, store).next() {
+        Some(fmt) => format_uri_to_request_strategy(fmt?.object.to_string()),
+        None => UrlRequestStrategy::HttpHead,
     };
 
     for acc_url_result in list_access_urls(distribution, store) {
         match acc_url_result?.object {
             Term::NamedNode(acc_url_node) => {
                 urls.push(UrlCheck {
-                    method: head.to_string(),
+                    strategy: strategy.clone(),
                     url: acc_url_node.into_string(),
                     url_type: UrlType::AccessUrl,
                 });
@@ -158,7 +146,7 @@ pub fn extract_urls_from_distribution(
         match dl_url_result?.object {
             Term::NamedNode(dl_url_node) => {
                 urls.push(UrlCheck {
-                    method: head.to_string(),
+                    strategy: strategy.clone(),
                     url: dl_url_node.into_string(),
                     url_type: UrlType::DownloadUrl,
                 });

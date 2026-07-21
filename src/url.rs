@@ -23,9 +23,51 @@ pub enum UrlType {
     DownloadUrl,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum OgcService {
+    Wms,
+    Wfs,
+    Wcs,
+}
+
+impl OgcService {
+    fn as_str(&self) -> &'static str {
+        match self {
+            OgcService::Wms => "WMS",
+            OgcService::Wfs => "WFS",
+            OgcService::Wcs => "WCS",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum UrlRequestStrategy {
+    HttpHead,
+    HttpGet,
+    OgcGetCapabilities(OgcService),
+}
+
+impl UrlRequestStrategy {
+    fn http_method(&self) -> http::Method {
+        match self {
+            UrlRequestStrategy::HttpHead => http::Method::HEAD,
+            UrlRequestStrategy::HttpGet | UrlRequestStrategy::OgcGetCapabilities(_) => {
+                http::Method::GET
+            }
+        }
+    }
+
+    fn ogc_service(&self) -> Option<&OgcService> {
+        match self {
+            UrlRequestStrategy::OgcGetCapabilities(service) => Some(service),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UrlCheck {
-    pub method: String,
+    pub strategy: UrlRequestStrategy,
     pub url_type: UrlType,
     pub url: String,
 }
@@ -100,6 +142,17 @@ async fn check_urls(
     Ok(())
 }
 
+/// Map distribution format URI to the HTTP request strategy used for URL checks.
+pub fn format_uri_to_request_strategy(format_uri: String) -> UrlRequestStrategy {
+    let fmt = format_uri.split("/").last().unwrap_or_default();
+    match fmt {
+        "WMS_SRVC" => UrlRequestStrategy::OgcGetCapabilities(OgcService::Wms),
+        "WFS_SRVC" => UrlRequestStrategy::OgcGetCapabilities(OgcService::Wfs),
+        "WCS_SRVC" => UrlRequestStrategy::OgcGetCapabilities(OgcService::Wcs),
+        _ => UrlRequestStrategy::HttpHead,
+    }
+}
+
 pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
     let parsed_url = Url::parse(url_check.url.as_str());
 
@@ -107,7 +160,7 @@ pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
         Ok(mut u) => {
             u.set_query(None);
             let mut check_result = perform_url_check(
-                url_check.method.clone(),
+                url_check.strategy.clone(),
                 url_check.url.clone(),
                 url_check.url_type.clone(),
                 u.to_string(),
@@ -132,10 +185,10 @@ pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
     time = 300,
     with_cached_flag = true,
     key = "String",
-    convert = r#"{ format!("{}", _parsed_url) }"#
+    convert = r#"{ format!("{:?}:{}", strategy, _parsed_url) }"#
 )]
 async fn perform_url_check(
-    method: String,
+    strategy: UrlRequestStrategy,
     url: String,
     url_type: UrlType,
     _parsed_url: String,
@@ -155,16 +208,13 @@ async fn perform_url_check(
     match client {
         Ok(req)  => {
             tracing::debug!("Client created");
-            let mut final_url = url.clone();
-            if method != "HEAD" {
-                final_url = get_geo_url(method.clone(), final_url).await;
-            }
+            let final_url = match strategy.ogc_service() {
+                Some(service) => append_ogc_get_capabilities_query(service, url.clone()),
+                None => url.clone(),
+            };
 
             match req
-                .request(
-                    http::Method::from_bytes(method.as_bytes()).unwrap_or(http::Method::GET),
-                    final_url.as_str(),
-                )
+                .request(strategy.http_method(), final_url.as_str())
                 .send().await
             {
                 Ok(resp) => {
@@ -172,7 +222,13 @@ async fn perform_url_check(
                     check_result.status = resp.status().as_u16();
 
                     if check_result.status == 405 {
-                        return Box::pin(perform_url_check("GET".to_string(), url, url_type, _parsed_url)).await;
+                        return Box::pin(perform_url_check(
+                            UrlRequestStrategy::HttpGet,
+                            url,
+                            url_type,
+                            _parsed_url,
+                        ))
+                        .await;
                     }
                 }
                 Err(e) => {
@@ -190,7 +246,7 @@ async fn perform_url_check(
     }    
 }
 
-async fn get_geo_url(method: String, url: String) -> String {
+fn append_ogc_get_capabilities_query(service: &OgcService, url: String) -> String {
     let parsed_url = Url::parse(url.as_str());
 
     match parsed_url {
@@ -199,7 +255,7 @@ async fn get_geo_url(method: String, url: String) -> String {
                 && !u.query().unwrap_or("").contains("REQUEST=GetCapabilities")
             {
                 u.set_query(Some(
-                    format!("request=GetCapabilities&service={}", method).as_str(),
+                    format!("request=GetCapabilities&service={}", service.as_str()).as_str(),
                 ));
             }
             u.to_string()
