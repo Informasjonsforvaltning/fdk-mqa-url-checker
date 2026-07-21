@@ -1,4 +1,5 @@
 use cached::{proc_macro::cached, Return};
+use lazy_static::lazy_static;
 use oxigraph::{
     model::{NamedNodeRef, Quad, Term},
     store::Store,
@@ -16,6 +17,16 @@ use crate::{
     },
     vocab::dcat_mqa,
 };
+
+const URL_CHECK_TIMEOUT_SECS: u64 = 10;
+const HTTP_STATUS_METHOD_NOT_ALLOWED: u16 = 405;
+const HTTP_STATUS_BAD_REQUEST: u16 = 400;
+
+lazy_static! {
+    static ref HTTP_CLIENT: Result<Client, reqwest::Error> = Client::builder()
+        .timeout(Duration::from_secs(URL_CHECK_TIMEOUT_SECS))
+        .build();
+}
 
 #[derive(Debug, Clone)]
 pub enum UrlType {
@@ -175,7 +186,7 @@ pub async fn check_url(url_check: &UrlCheck) -> UrlCheckResult {
         Err(_) => UrlCheckResult {
             url: url_check.url.clone(),
             url_type: url_check.url_type.clone(),
-            status: 400,
+            status: HTTP_STATUS_BAD_REQUEST,
             note: "URL is invalid".to_string(),
         },
     }
@@ -193,63 +204,87 @@ async fn perform_url_check(
     url_type: UrlType,
     _parsed_url: String,
 ) -> Return<UrlCheckResult> {
-    let mut check_result = UrlCheckResult {
-        url: url.clone(),
-        url_type: url_type.clone(),
-        status: 0,
-        note: "".to_string(),
-    };
+    let check_result = fetch_url_status(&strategy, &url, &url_type).await;
 
-    // Create a client so we can make requests
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build();
-
-    match client {
-        Ok(req)  => {
-            tracing::debug!("Client created");
-            let final_url = match strategy.ogc_service() {
-                Some(service) => append_ogc_get_capabilities_query(service, url.clone()),
-                None => url.clone(),
-            };
-
-            match req
-                .request(strategy.http_method(), final_url.as_str())
-                .send().await
-            {
-                Ok(resp) => {
-                    check_result.note = "Response value".to_string();
-                    check_result.status = resp.status().as_u16();
-
-                    if check_result.status == 405 {
-                        return Box::pin(perform_url_check(
-                            UrlRequestStrategy::HttpGet,
-                            url,
-                            url_type,
-                            _parsed_url,
-                        ))
-                        .await;
-                    }
-                }
-                Err(e) => {
-                    check_result.note = e.to_string();
-                    check_result.status = 400;
-                }
-            }
-
-            Return::new(check_result)
+    if check_result.status == HTTP_STATUS_METHOD_NOT_ALLOWED {
+        if let Some(fallback) = method_not_allowed_fallback(&strategy) {
+            return Box::pin(perform_url_check(
+                fallback,
+                url,
+                url_type,
+                _parsed_url,
+            ))
+            .await;
         }
-        Err(e) => {
-            tracing::error!("Failed to create client: {}", e);
-            panic!("Unexpected error when creating request client!");
-        }
-    }    
+    }
+
+    Return::new(check_result)
 }
 
-fn append_ogc_get_capabilities_query(service: &OgcService, url: String) -> String {
-    let parsed_url = Url::parse(url.as_str());
+async fn fetch_url_status(
+    strategy: &UrlRequestStrategy,
+    url: &str,
+    url_type: &UrlType,
+) -> UrlCheckResult {
+    let client = match HTTP_CLIENT.as_ref() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::error!(error = e.to_string(), "failed to create HTTP client");
+            return UrlCheckResult {
+                url: url.to_string(),
+                url_type: url_type.clone(),
+                status: HTTP_STATUS_BAD_REQUEST,
+                note: format!("Failed to create HTTP client: {}", e),
+            };
+        }
+    };
 
-    match parsed_url {
+    let request_url = build_request_url(strategy, url);
+
+    match execute_http_check(client, strategy, &request_url).await {
+        Ok(status) => UrlCheckResult {
+            url: url.to_string(),
+            url_type: url_type.clone(),
+            status,
+            note: "Response value".to_string(),
+        },
+        Err(e) => UrlCheckResult {
+            url: url.to_string(),
+            url_type: url_type.clone(),
+            status: HTTP_STATUS_BAD_REQUEST,
+            note: e.to_string(),
+        },
+    }
+}
+
+fn build_request_url(strategy: &UrlRequestStrategy, url: &str) -> String {
+    match strategy.ogc_service() {
+        Some(service) => append_ogc_get_capabilities_query(service, url),
+        None => url.to_string(),
+    }
+}
+
+async fn execute_http_check(
+    client: &Client,
+    strategy: &UrlRequestStrategy,
+    url: &str,
+) -> Result<u16, reqwest::Error> {
+    let response = client
+        .request(strategy.http_method(), url)
+        .send()
+        .await?;
+    Ok(response.status().as_u16())
+}
+
+fn method_not_allowed_fallback(strategy: &UrlRequestStrategy) -> Option<UrlRequestStrategy> {
+    match strategy {
+        UrlRequestStrategy::HttpHead => Some(UrlRequestStrategy::HttpGet),
+        UrlRequestStrategy::HttpGet | UrlRequestStrategy::OgcGetCapabilities(_) => None,
+    }
+}
+
+fn append_ogc_get_capabilities_query(service: &OgcService, url: &str) -> String {
+    match Url::parse(url) {
         Ok(mut u) => {
             if !u.query().unwrap_or("").contains("request=GetCapabilities")
                 && !u.query().unwrap_or("").contains("REQUEST=GetCapabilities")
