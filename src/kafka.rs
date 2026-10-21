@@ -38,6 +38,14 @@ const MESSAGE_TIMEOUT_MS: &str = "5000";
 
 lazy_static! {
     pub static ref BROKERS: String = env::var("BROKERS").unwrap_or("localhost:9092".to_string());
+    pub static ref KAFKA_SECURITY_PROTOCOL: String =
+        env::var("KAFKA_SECURITY_PROTOCOL").unwrap_or("plaintext".to_string());
+    pub static ref KAFKA_SASL_MECHANISM: String =
+        env::var("KAFKA_SASL_MECHANISM").unwrap_or("SCRAM-SHA-512".to_string());
+    pub static ref KAFKA_SASL_USERNAME: String =
+        env::var("KAFKA_SASL_USERNAME").unwrap_or_default();
+    pub static ref KAFKA_SASL_PASSWORD: String =
+        env::var("KAFKA_SASL_PASSWORD").unwrap_or_default();
     pub static ref SCHEMA_REGISTRY: String =
         env::var("SCHEMA_REGISTRY").unwrap_or("http://localhost:8081".to_string());
     pub static ref INPUT_TOPIC: String =
@@ -71,7 +79,8 @@ pub fn create_sr_settings_from_urls(
 }
 
 pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
-    let consumer: StreamConsumer = ClientConfig::new()
+    let mut client_config = ClientConfig::new();
+    client_config
         .set("group.id", CONSUMER_GROUP_ID)
         .set("bootstrap.servers", BROKERS.clone())
         .set("enable.partition.eof", "false")
@@ -79,20 +88,36 @@ pub fn create_consumer() -> Result<StreamConsumer, KafkaError> {
         .set("enable.auto.commit", "true")
         .set("enable.auto.offset.store", "false")
         .set("auto.offset.reset", "beginning")
-        .set("api.version.request", "false")
-        .set("security.protocol", "plaintext")
-        .set("max.partition.fetch.bytes", MAX_PARTITION_FETCH_BYTES)
-        .create()?;
+        .set("max.partition.fetch.bytes", MAX_PARTITION_FETCH_BYTES);
+    set_security(&mut client_config);
+    let consumer: StreamConsumer = client_config.create()?;
     consumer.subscribe(&[&INPUT_TOPIC])?;
     Ok(consumer)
 }
 
+/// Applies the broker security settings from the environment.
+///
+/// SASL credentials are only set when the security protocol requires them,
+/// so local development and tests keep using plaintext.
+fn set_security(client_config: &mut ClientConfig) {
+    let security_protocol = KAFKA_SECURITY_PROTOCOL.to_lowercase();
+    client_config.set("security.protocol", &security_protocol);
+    if security_protocol.starts_with("sasl") {
+        client_config
+            .set("sasl.mechanism", KAFKA_SASL_MECHANISM.clone())
+            .set("sasl.username", KAFKA_SASL_USERNAME.clone())
+            .set("sasl.password", KAFKA_SASL_PASSWORD.clone());
+    }
+}
+
 pub fn create_producer() -> Result<FutureProducer, KafkaError> {
-    ClientConfig::new()
+    let mut client_config = ClientConfig::new();
+    client_config
         .set("bootstrap.servers", BROKERS.clone())
         .set("message.timeout.ms", MESSAGE_TIMEOUT_MS)
-        .set("compression.type", "snappy")
-        .create()
+        .set("compression.type", "snappy");
+    set_security(&mut client_config);
+    client_config.create()
 }
 
 /// Creates all the resources and runs the event loop. The event loop will:
