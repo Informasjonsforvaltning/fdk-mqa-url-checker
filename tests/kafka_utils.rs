@@ -3,7 +3,7 @@ use std::time::Duration;
 use fdk_mqa_url_checker::kafka::create_sr_settings_from_urls;
 use rdkafka::{
     config::RDKafkaLogLevel,
-    consumer::{CommitMode, Consumer, StreamConsumer},
+    consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer},
     error::KafkaError,
     message::BorrowedMessage,
     producer::{FutureProducer, FutureRecord},
@@ -42,7 +42,9 @@ pub fn create_sr_settings(schema_registry_urls: &str) -> Result<SrSettings, Erro
 }
 
 /// Consumes all messages until no more can be received within the timeout period.
-pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error> {
+pub async fn consume_all_messages<C: ConsumerContext + 'static>(
+    consumer: &StreamConsumer<C>,
+) -> Result<(), Error> {
     loop {
         // Loop until no message can be received within timeout.
         let timeout_duration = Duration::from_millis(500);
@@ -55,8 +57,8 @@ pub async fn consume_all_messages(consumer: &StreamConsumer) -> Result<(), Error
 }
 
 /// Consumes and returns a single message, if received within the timeout period.
-pub async fn recv_with_timeout(
-    consumer: &StreamConsumer,
+pub async fn recv_with_timeout<C: ConsumerContext + 'static>(
+    consumer: &StreamConsumer<C>,
     timeout_duration: Duration,
 ) -> Result<BorrowedMessage<'_>, Error> {
     match tokio::time::timeout(timeout_duration, consumer.recv()).await {

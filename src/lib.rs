@@ -1,5 +1,6 @@
 pub mod error;
 pub mod kafka;
+pub mod kafka_context;
 pub mod metrics;
 mod rdf;
 pub mod schemas;

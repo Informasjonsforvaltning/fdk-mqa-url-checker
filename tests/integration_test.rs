@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use fdk_mqa_url_checker::kafka::KafkaConsumer;
 use fdk_mqa_url_checker::{
     kafka::{
         create_consumer, create_producer, create_sr_settings, handle_message, BROKERS, INPUT_TOPIC,
@@ -9,7 +10,6 @@ use fdk_mqa_url_checker::{
 };
 use kafka_utils::{consume_all_messages, recv_with_timeout, AvroProducer};
 use oxigraph::store::Store;
-use rdkafka::consumer::StreamConsumer;
 use schema_registry_converter::async_impl::avro::{AvroDecoder, AvroEncoder};
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ async fn dataset_harvested_produces_urls_checked_event() {
     .await;
 }
 
-pub async fn process_single_message(consumer: StreamConsumer) {
+pub async fn process_single_message(consumer: KafkaConsumer) {
     let producer = create_producer().unwrap();
     let sr_settings = create_sr_settings().unwrap();
     let mut encoder = AvroEncoder::new(sr_settings.clone());
