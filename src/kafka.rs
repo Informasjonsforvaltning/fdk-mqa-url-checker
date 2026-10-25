@@ -197,7 +197,7 @@ async fn process_received_message(
     let elapsed_millis = start_time.elapsed().as_millis();
     match result {
         Ok(_) => {
-            tracing::info!(elapsed_millis, "message handled successfully");
+            tracing::debug!(elapsed_millis, "message handled successfully");
             PROCESSED_MESSAGES.with_label_values(&["success"]).inc();
 
             if let Err(e) = consumer.store_offset_from_message(&message) {
