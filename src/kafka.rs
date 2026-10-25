@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use oxigraph::store::Store;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
-    error::KafkaError,
+    error::{KafkaError, RDKafkaErrorCode},
     message::BorrowedMessage,
     producer::{FutureProducer, FutureRecord},
     ClientConfig, Message,
@@ -312,14 +312,15 @@ const CONSUMER_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(10);
 ///
 /// librdkafka reports broker outages, transport failures and failed (re)connects
 /// as error events and reconnects on its own, so the worker keeps consuming and
-/// logs at most one warning per interval. Only librdkafka's fatal errors end the
-/// worker.
+/// logs at most one warning per interval. Errors that no amount of retrying will
+/// fix end the worker instead, so a wrong password or a missing ACL shows up as
+/// a restarting pod rather than a silent one.
 fn handle_consumer_error(
     worker_id: usize,
     error: &KafkaError,
     last_logged: &mut Option<Instant>,
 ) -> Result<(), Error> {
-    if let KafkaError::MessageConsumptionFatal(_) = error {
+    if is_unrecoverable(error) {
         return Err(error.clone().into());
     }
     if last_logged.is_none_or(|at| at.elapsed() >= CONSUMER_ERROR_LOG_INTERVAL) {
@@ -331,6 +332,23 @@ fn handle_consumer_error(
         *last_logged = Some(Instant::now());
     }
     Ok(())
+}
+
+/// librdkafka's fatal errors, plus failed authentication and denied
+/// authorization, which only change when the configuration does.
+fn is_unrecoverable(error: &KafkaError) -> bool {
+    match error {
+        KafkaError::MessageConsumptionFatal(_) => true,
+        KafkaError::MessageConsumption(code) => matches!(
+            code,
+            RDKafkaErrorCode::Authentication
+                | RDKafkaErrorCode::SaslAuthenticationFailed
+                | RDKafkaErrorCode::TopicAuthorizationFailed
+                | RDKafkaErrorCode::GroupAuthorizationFailed
+                | RDKafkaErrorCode::ClusterAuthorizationFailed
+        ),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -346,9 +364,30 @@ mod consumer_error_tests {
     }
 
     #[test]
-    fn authentication_error_keeps_the_worker_alive() {
-        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::Authentication);
+    fn all_brokers_down_keeps_the_worker_alive() {
+        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::AllBrokersDown);
         assert!(handle_consumer_error(0, &error, &mut None).is_ok());
+    }
+
+    #[test]
+    fn authentication_error_ends_the_worker() {
+        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::Authentication);
+        assert!(handle_consumer_error(0, &error, &mut None).is_err());
+    }
+
+    #[test]
+    fn authorization_error_ends_the_worker() {
+        for code in [
+            RDKafkaErrorCode::TopicAuthorizationFailed,
+            RDKafkaErrorCode::GroupAuthorizationFailed,
+            RDKafkaErrorCode::ClusterAuthorizationFailed,
+        ] {
+            let error = KafkaError::MessageConsumption(code);
+            assert!(
+                handle_consumer_error(0, &error, &mut None).is_err(),
+                "{code:?}"
+            );
+        }
     }
 
     #[test]
