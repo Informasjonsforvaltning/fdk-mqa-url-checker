@@ -141,12 +141,15 @@ pub async fn run_async_processor(worker_id: usize, sr_settings: SrSettings) -> R
     let mut decoder = AvroDecoder::new(sr_settings);
 
     tracing::info!(worker_id, "listening for messages");
-    let mut last_consumer_error_log: Option<Instant> = None;
+    let mut errors = ErrorStreak::default();
     loop {
         let message = match consumer.recv().await {
-            Ok(message) => message,
+            Ok(message) => {
+                errors.reset();
+                message
+            }
             Err(e) => {
-                handle_consumer_error(worker_id, &e, &mut last_consumer_error_log)?;
+                handle_consumer_error(worker_id, &e, &mut errors, Instant::now())?;
                 continue;
             }
         };
@@ -308,34 +311,83 @@ async fn handle_dataset_event(
 /// How often a worker repeats the warning while the broker stays unreachable.
 const CONSUMER_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
+/// How long a worker puts up with nothing but errors from the consumer before
+/// it gives up. A broker restart is over well within this; a wrong broker
+/// address or a long outage ends in a restarting pod instead of a silent one.
+const CONSUMER_ERROR_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
+/// A pause between errors long enough to count them as separate incidents.
+/// librdkafka repeats an error at least every 30 seconds while it lasts.
+const CONSUMER_ERROR_STREAK_GAP: Duration = Duration::from_secs(60);
+
+/// A run of consecutive errors from the consumer stream, cleared by the next
+/// successfully received message or by a gap of `CONSUMER_ERROR_STREAK_GAP`
+/// without errors, so that two short blips on a quiet topic do not add up.
+#[derive(Debug, Default)]
+struct ErrorStreak {
+    started: Option<Instant>,
+    last_seen: Option<Instant>,
+    last_logged: Option<Instant>,
+}
+
+impl ErrorStreak {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 /// Decides what to do with an error from the consumer stream.
 ///
 /// librdkafka reports broker outages, transport failures and failed (re)connects
 /// as error events and reconnects on its own, so the worker keeps consuming and
-/// logs at most one warning per interval. Errors that no amount of retrying will
-/// fix end the worker instead, so a wrong password or a missing ACL shows up as
-/// a restarting pod rather than a silent one.
+/// logs at most one warning per interval. The worker ends instead when the error
+/// is one no amount of retrying will fix, such as a wrong password, a missing
+/// ACL or an unknown topic, or when it has seen nothing but errors for
+/// `CONSUMER_ERROR_DEADLINE`. Either way the process exits and the pod restarts,
+/// which is visible, rather than idling forever.
 fn handle_consumer_error(
     worker_id: usize,
     error: &KafkaError,
-    last_logged: &mut Option<Instant>,
+    streak: &mut ErrorStreak,
+    now: Instant,
 ) -> Result<(), Error> {
     if is_unrecoverable(error) {
         return Err(error.clone().into());
     }
-    if last_logged.is_none_or(|at| at.elapsed() >= CONSUMER_ERROR_LOG_INTERVAL) {
+    if streak
+        .last_seen
+        .is_some_and(|at| now.duration_since(at) > CONSUMER_ERROR_STREAK_GAP)
+    {
+        streak.reset();
+    }
+    streak.last_seen = Some(now);
+    let started = *streak.started.get_or_insert(now);
+    if now.duration_since(started) >= CONSUMER_ERROR_DEADLINE {
+        tracing::error!(
+            worker_id,
+            error = %error,
+            seconds = now.duration_since(started).as_secs(),
+            "consumer has seen nothing but errors, giving up"
+        );
+        return Err(error.clone().into());
+    }
+    if streak
+        .last_logged
+        .is_none_or(|at| now.duration_since(at) >= CONSUMER_ERROR_LOG_INTERVAL)
+    {
         tracing::warn!(
             worker_id,
             error = %error,
             "consumer error, retrying"
         );
-        *last_logged = Some(Instant::now());
+        streak.last_logged = Some(now);
     }
     Ok(())
 }
 
-/// librdkafka's fatal errors, plus failed authentication and denied
-/// authorization, which only change when the configuration does.
+/// librdkafka's fatal errors, plus the errors that only change when the
+/// configuration does: failed authentication, denied authorization and a
+/// subscribed topic that does not exist.
 fn is_unrecoverable(error: &KafkaError) -> bool {
     match error {
         KafkaError::MessageConsumptionFatal(_) => true,
@@ -346,6 +398,7 @@ fn is_unrecoverable(error: &KafkaError) -> bool {
                 | RDKafkaErrorCode::TopicAuthorizationFailed
                 | RDKafkaErrorCode::GroupAuthorizationFailed
                 | RDKafkaErrorCode::ClusterAuthorizationFailed
+                | RDKafkaErrorCode::UnknownTopicOrPartition
         ),
         _ => false,
     }
@@ -353,26 +406,48 @@ fn is_unrecoverable(error: &KafkaError) -> bool {
 
 #[cfg(test)]
 mod consumer_error_tests {
+    use std::time::{Duration, Instant};
+
     use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 
-    use super::handle_consumer_error;
+    use super::{
+        handle_consumer_error, ErrorStreak, CONSUMER_ERROR_DEADLINE, CONSUMER_ERROR_LOG_INTERVAL,
+        CONSUMER_ERROR_STREAK_GAP,
+    };
 
-    #[test]
-    fn transport_failure_keeps_the_worker_alive() {
-        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::BrokerTransportFailure);
-        assert!(handle_consumer_error(0, &error, &mut None).is_ok());
+    fn transient() -> KafkaError {
+        KafkaError::MessageConsumption(RDKafkaErrorCode::BrokerTransportFailure)
+    }
+
+    /// Returns whether the worker stays alive.
+    fn handle(error: &KafkaError, streak: &mut ErrorStreak, now: Instant) -> bool {
+        handle_consumer_error(0, error, streak, now).is_ok()
     }
 
     #[test]
-    fn all_brokers_down_keeps_the_worker_alive() {
-        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::AllBrokersDown);
-        assert!(handle_consumer_error(0, &error, &mut None).is_ok());
+    fn transient_errors_keep_the_worker_alive() {
+        for code in [
+            RDKafkaErrorCode::BrokerTransportFailure,
+            RDKafkaErrorCode::AllBrokersDown,
+            RDKafkaErrorCode::Resolve,
+            RDKafkaErrorCode::NotCoordinator,
+        ] {
+            let error = KafkaError::MessageConsumption(code);
+            let mut streak = ErrorStreak::default();
+            assert!(handle(&error, &mut streak, Instant::now()), "{code:?}");
+        }
     }
 
     #[test]
     fn authentication_error_ends_the_worker() {
-        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::Authentication);
-        assert!(handle_consumer_error(0, &error, &mut None).is_err());
+        for code in [
+            RDKafkaErrorCode::Authentication,
+            RDKafkaErrorCode::SaslAuthenticationFailed,
+        ] {
+            let error = KafkaError::MessageConsumption(code);
+            let mut streak = ErrorStreak::default();
+            assert!(!handle(&error, &mut streak, Instant::now()), "{code:?}");
+        }
     }
 
     #[test]
@@ -383,28 +458,81 @@ mod consumer_error_tests {
             RDKafkaErrorCode::ClusterAuthorizationFailed,
         ] {
             let error = KafkaError::MessageConsumption(code);
-            assert!(
-                handle_consumer_error(0, &error, &mut None).is_err(),
-                "{code:?}"
-            );
+            let mut streak = ErrorStreak::default();
+            assert!(!handle(&error, &mut streak, Instant::now()), "{code:?}");
         }
+    }
+
+    #[test]
+    fn unknown_topic_ends_the_worker() {
+        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::UnknownTopicOrPartition);
+        assert!(!handle(&error, &mut ErrorStreak::default(), Instant::now()));
     }
 
     #[test]
     fn fatal_error_ends_the_worker() {
         let error = KafkaError::MessageConsumptionFatal(RDKafkaErrorCode::Fatal);
-        assert!(handle_consumer_error(0, &error, &mut None).is_err());
+        assert!(!handle(&error, &mut ErrorStreak::default(), Instant::now()));
     }
 
     #[test]
     fn repeated_errors_are_logged_once_per_interval() {
-        let error = KafkaError::MessageConsumption(RDKafkaErrorCode::BrokerTransportFailure);
-        let mut last_logged = None;
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
 
-        handle_consumer_error(0, &error, &mut last_logged).unwrap();
-        let first = last_logged.expect("the first error is logged");
-        handle_consumer_error(0, &error, &mut last_logged).unwrap();
+        assert!(handle(&transient(), &mut streak, start));
+        assert_eq!(streak.last_logged, Some(start));
 
-        assert_eq!(last_logged, Some(first));
+        let halfway = start + CONSUMER_ERROR_LOG_INTERVAL / 2;
+        assert!(handle(&transient(), &mut streak, halfway));
+        assert_eq!(streak.last_logged, Some(start));
+
+        let later = start + CONSUMER_ERROR_LOG_INTERVAL;
+        assert!(handle(&transient(), &mut streak, later));
+        assert_eq!(streak.last_logged, Some(later));
+    }
+
+    #[test]
+    fn errors_past_the_deadline_end_the_worker() {
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let deadline = start + CONSUMER_ERROR_DEADLINE;
+
+        // librdkafka repeats the error every 30 seconds while the broker is down.
+        let mut now = start;
+        while now < deadline {
+            assert!(handle(&transient(), &mut streak, now));
+            now += Duration::from_secs(30);
+        }
+        assert_eq!(streak.started, Some(start));
+        assert!(!handle(&transient(), &mut streak, deadline));
+    }
+
+    #[test]
+    fn a_quiet_spell_between_errors_restarts_the_deadline() {
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let second_blip = start + CONSUMER_ERROR_DEADLINE + CONSUMER_ERROR_STREAK_GAP;
+
+        let first_blip_again = start + Duration::from_secs(30);
+
+        assert!(handle(&transient(), &mut streak, start));
+        assert!(handle(&transient(), &mut streak, first_blip_again));
+
+        assert!(handle(&transient(), &mut streak, second_blip));
+        assert_eq!(streak.started, Some(second_blip));
+    }
+
+    #[test]
+    fn a_received_message_restarts_the_deadline() {
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let late = start + CONSUMER_ERROR_DEADLINE;
+
+        assert!(handle(&transient(), &mut streak, start));
+        streak.reset();
+
+        assert!(handle(&transient(), &mut streak, late));
+        assert_eq!(streak.started, Some(late));
     }
 }
