@@ -316,17 +316,43 @@ const CONSUMER_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(10);
 /// address or a long outage ends in a restarting pod instead of a silent one.
 const CONSUMER_ERROR_DEADLINE: Duration = Duration::from_secs(5 * 60);
 
+/// How long a worker puts up with failed authentication before it gives up.
+/// A broker that is still starting can reject one handshake; a wrong password
+/// is rejected on every reconnect, a few seconds apart.
+const AUTHENTICATION_DEADLINE: Duration = Duration::from_secs(30);
+
 /// A pause between errors long enough to count them as separate incidents.
 /// librdkafka repeats an error at least every 30 seconds while it lasts.
 const CONSUMER_ERROR_STREAK_GAP: Duration = Duration::from_secs(60);
 
-/// A run of consecutive errors from the consumer stream, cleared by the next
-/// successfully received message or by a gap of `CONSUMER_ERROR_STREAK_GAP`
-/// without errors, so that two short blips on a quiet topic do not add up.
+/// A run of consecutive errors, cut by a gap of `CONSUMER_ERROR_STREAK_GAP`
+/// without errors, so that two short blips do not add up.
 #[derive(Debug, Default)]
-struct ErrorStreak {
+struct Streak {
     started: Option<Instant>,
     last_seen: Option<Instant>,
+}
+
+impl Streak {
+    /// Records an error and returns how long the run has lasted.
+    fn record(&mut self, now: Instant) -> Duration {
+        if self
+            .last_seen
+            .is_some_and(|at| now.duration_since(at) > CONSUMER_ERROR_STREAK_GAP)
+        {
+            self.started = None;
+        }
+        self.last_seen = Some(now);
+        now.duration_since(*self.started.get_or_insert(now))
+    }
+}
+
+/// What a worker remembers about the errors from its consumer stream. Cleared
+/// by the next successfully received message.
+#[derive(Debug, Default)]
+struct ErrorStreak {
+    errors: Streak,
+    authentication: Streak,
     last_logged: Option<Instant>,
 }
 
@@ -341,8 +367,9 @@ impl ErrorStreak {
 /// librdkafka reports broker outages, transport failures and failed (re)connects
 /// as error events and reconnects on its own, so the worker keeps consuming and
 /// logs at most one warning per interval. The worker ends instead when the error
-/// is one no amount of retrying will fix, such as a wrong password, a missing
-/// ACL or an unknown topic, or when it has seen nothing but errors for
+/// is one no amount of retrying will fix, such as a missing ACL or an unknown
+/// topic, when authentication has kept failing for `AUTHENTICATION_DEADLINE`
+/// (a wrong password), or when it has seen nothing but errors for
 /// `CONSUMER_ERROR_DEADLINE`. Either way the process exits and the pod restarts,
 /// which is visible, rather than idling forever.
 fn handle_consumer_error(
@@ -354,19 +381,24 @@ fn handle_consumer_error(
     if is_unrecoverable(error) {
         return Err(error.clone().into());
     }
-    if streak
-        .last_seen
-        .is_some_and(|at| now.duration_since(at) > CONSUMER_ERROR_STREAK_GAP)
-    {
-        streak.reset();
+    if is_authentication_failure(error) {
+        let failing_for = streak.authentication.record(now);
+        if failing_for >= AUTHENTICATION_DEADLINE {
+            tracing::error!(
+                worker_id,
+                error = %error,
+                seconds = failing_for.as_secs(),
+                "authentication keeps failing, giving up"
+            );
+            return Err(error.clone().into());
+        }
     }
-    streak.last_seen = Some(now);
-    let started = *streak.started.get_or_insert(now);
-    if now.duration_since(started) >= CONSUMER_ERROR_DEADLINE {
+    let failing_for = streak.errors.record(now);
+    if failing_for >= CONSUMER_ERROR_DEADLINE {
         tracing::error!(
             worker_id,
             error = %error,
-            seconds = now.duration_since(started).as_secs(),
+            seconds = failing_for.as_secs(),
             "consumer has seen nothing but errors, giving up"
         );
         return Err(error.clone().into());
@@ -375,33 +407,37 @@ fn handle_consumer_error(
         .last_logged
         .is_none_or(|at| now.duration_since(at) >= CONSUMER_ERROR_LOG_INTERVAL)
     {
-        tracing::warn!(
-            worker_id,
-            error = %error,
-            "consumer error, retrying"
-        );
+        tracing::warn!(worker_id, error = %error, "consumer error, retrying");
         streak.last_logged = Some(now);
     }
     Ok(())
 }
 
 /// librdkafka's fatal errors, plus the errors that only change when the
-/// configuration does: failed authentication, denied authorization and a
-/// subscribed topic that does not exist.
+/// configuration does: denied authorization and a subscribed topic that does
+/// not exist.
 fn is_unrecoverable(error: &KafkaError) -> bool {
     match error {
         KafkaError::MessageConsumptionFatal(_) => true,
         KafkaError::MessageConsumption(code) => matches!(
             code,
-            RDKafkaErrorCode::Authentication
-                | RDKafkaErrorCode::SaslAuthenticationFailed
-                | RDKafkaErrorCode::TopicAuthorizationFailed
+            RDKafkaErrorCode::TopicAuthorizationFailed
                 | RDKafkaErrorCode::GroupAuthorizationFailed
                 | RDKafkaErrorCode::ClusterAuthorizationFailed
                 | RDKafkaErrorCode::UnknownTopicOrPartition
         ),
         _ => false,
     }
+}
+
+/// The broker rejected the SASL handshake, or it could not be completed.
+fn is_authentication_failure(error: &KafkaError) -> bool {
+    matches!(
+        error,
+        KafkaError::MessageConsumption(
+            RDKafkaErrorCode::Authentication | RDKafkaErrorCode::SaslAuthenticationFailed
+        )
+    )
 }
 
 #[cfg(test)]
@@ -411,17 +447,45 @@ mod consumer_error_tests {
     use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 
     use super::{
-        handle_consumer_error, ErrorStreak, CONSUMER_ERROR_DEADLINE, CONSUMER_ERROR_LOG_INTERVAL,
-        CONSUMER_ERROR_STREAK_GAP,
+        handle_consumer_error, ErrorStreak, AUTHENTICATION_DEADLINE, CONSUMER_ERROR_DEADLINE,
+        CONSUMER_ERROR_LOG_INTERVAL, CONSUMER_ERROR_STREAK_GAP,
     };
+
+    /// librdkafka repeats an error this often while a broker stays down.
+    const REPEAT: Duration = Duration::from_secs(30);
+
+    /// librdkafka waits at most this long between reconnects after a failed
+    /// handshake.
+    const RECONNECT: Duration = Duration::from_secs(10);
 
     fn transient() -> KafkaError {
         KafkaError::MessageConsumption(RDKafkaErrorCode::BrokerTransportFailure)
     }
 
+    fn authentication() -> KafkaError {
+        KafkaError::MessageConsumption(RDKafkaErrorCode::Authentication)
+    }
+
     /// Returns whether the worker stays alive.
     fn handle(error: &KafkaError, streak: &mut ErrorStreak, now: Instant) -> bool {
         handle_consumer_error(0, error, streak, now).is_ok()
+    }
+
+    /// Feeds `error` every `every` from `from` up to, but not including, `until`,
+    /// expecting the worker to stay alive throughout.
+    fn repeat(
+        error: &KafkaError,
+        streak: &mut ErrorStreak,
+        from: Instant,
+        until: Instant,
+        every: Duration,
+    ) {
+        let mut now = from;
+        while now < until {
+            let elapsed = now.duration_since(from);
+            assert!(handle(error, streak, now), "{error} at +{elapsed:?}");
+            now += every;
+        }
     }
 
     #[test]
@@ -439,15 +503,50 @@ mod consumer_error_tests {
     }
 
     #[test]
-    fn authentication_error_ends_the_worker() {
+    fn one_authentication_failure_keeps_the_worker_alive() {
         for code in [
             RDKafkaErrorCode::Authentication,
             RDKafkaErrorCode::SaslAuthenticationFailed,
         ] {
             let error = KafkaError::MessageConsumption(code);
             let mut streak = ErrorStreak::default();
-            assert!(!handle(&error, &mut streak, Instant::now()), "{code:?}");
+            assert!(handle(&error, &mut streak, Instant::now()), "{code:?}");
         }
+    }
+
+    #[test]
+    fn persistent_authentication_failure_ends_the_worker() {
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let deadline = start + AUTHENTICATION_DEADLINE;
+
+        repeat(&authentication(), &mut streak, start, deadline, RECONNECT);
+        assert!(!handle(&authentication(), &mut streak, deadline));
+    }
+
+    #[test]
+    fn suppressed_authentication_failures_still_end_the_worker() {
+        // librdkafka reports an identical error at most every 30 seconds, so a
+        // wrong password surfaces as a failure, then silence, then another.
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let after_suppression = start + REPEAT + RECONNECT / 2;
+
+        assert!(handle(&authentication(), &mut streak, start));
+        assert!(!handle(&authentication(), &mut streak, after_suppression));
+    }
+
+    #[test]
+    fn authentication_failures_far_apart_keep_the_worker_alive() {
+        // Two brokers of a rolling restart each reject one handshake, with the
+        // usual transport errors in between.
+        let mut streak = ErrorStreak::default();
+        let start = Instant::now();
+        let second = start + AUTHENTICATION_DEADLINE + CONSUMER_ERROR_STREAK_GAP;
+
+        assert!(handle(&authentication(), &mut streak, start));
+        repeat(&transient(), &mut streak, start + REPEAT, second, REPEAT);
+        assert!(handle(&authentication(), &mut streak, second));
     }
 
     #[test]
@@ -498,13 +597,8 @@ mod consumer_error_tests {
         let start = Instant::now();
         let deadline = start + CONSUMER_ERROR_DEADLINE;
 
-        // librdkafka repeats the error every 30 seconds while the broker is down.
-        let mut now = start;
-        while now < deadline {
-            assert!(handle(&transient(), &mut streak, now));
-            now += Duration::from_secs(30);
-        }
-        assert_eq!(streak.started, Some(start));
+        repeat(&transient(), &mut streak, start, deadline, REPEAT);
+        assert_eq!(streak.errors.started, Some(start));
         assert!(!handle(&transient(), &mut streak, deadline));
     }
 
@@ -514,13 +608,9 @@ mod consumer_error_tests {
         let start = Instant::now();
         let second_blip = start + CONSUMER_ERROR_DEADLINE + CONSUMER_ERROR_STREAK_GAP;
 
-        let first_blip_again = start + Duration::from_secs(30);
-
-        assert!(handle(&transient(), &mut streak, start));
-        assert!(handle(&transient(), &mut streak, first_blip_again));
-
+        repeat(&transient(), &mut streak, start, start + REPEAT * 2, REPEAT);
         assert!(handle(&transient(), &mut streak, second_blip));
-        assert_eq!(streak.started, Some(second_blip));
+        assert_eq!(streak.errors.started, Some(second_blip));
     }
 
     #[test]
@@ -533,6 +623,6 @@ mod consumer_error_tests {
         streak.reset();
 
         assert!(handle(&transient(), &mut streak, late));
-        assert_eq!(streak.started, Some(late));
+        assert_eq!(streak.errors.started, Some(late));
     }
 }
